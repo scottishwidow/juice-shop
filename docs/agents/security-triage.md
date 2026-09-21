@@ -3,8 +3,9 @@
 How a CodeQL finding becomes either a reviewed pull request or a recorded refusal. Terms are
 defined in [routes/CONTEXT.md](../../routes/CONTEXT.md). Decisions are recorded in
 [docs/adr/0001](../adr/0001-mechanical-coupling-detection.md),
-[0002](../adr/0002-authorization-inputs-read-from-base-ref.md) and
-[0003](../adr/0003-fork-contribution-bots-removed.md).
+[0002](../adr/0002-authorization-inputs-read-from-base-ref.md),
+[0003](../adr/0003-fork-contribution-bots-removed.md) and
+[0004](../adr/0004-triage-model-call-has-no-tools.md).
 
 ## Stages
 
@@ -34,6 +35,24 @@ Triggered by `on: issues: types: [labeled]`.
 
 `remediate` must check out with `persist-credentials: false`. The `triage` toolbox permits
 comment creation only.
+
+## Triage job
+
+Implemented in `.github/workflows/security-triage.yml`, running
+`lib/scripts/securityTriage/triage.ts`.
+
+The human-transcribed issue body must contain a case-insensitive `alert #<n>` reference (for
+example "CodeQL alert #6"); `lib/parseAlertNumber.ts` reads it. Nothing else about the finding
+is trusted from the issue: the path and rule are fetched from the code-scanning API keyed by
+that number, so editing the issue body cannot redirect triage at a different file (issue #2,
+user story 13).
+
+The verdict is decided mechanically by `lib/triageVerdict.ts` against the checked-out base
+ref (`master`), before the model runs. The model call carries no tools and drafts only the
+prose explanation of that already-decided verdict; see
+[ADR-0004](../adr/0004-triage-model-call-has-no-tools.md). The workflow script, not the
+model, posts the comment and swaps `sec:needs-triage` for `sec:triaged`, using the job's own
+`issues: write` permission.
 
 ## Allow-list
 

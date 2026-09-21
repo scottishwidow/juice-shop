@@ -1,0 +1,31 @@
+name: "Security triage"
+on:
+  issues:
+    types: [labeled]
+permissions:
+  contents: read
+  issues: write
+jobs:
+  triage:
+    # Only a human applying sec:needs-triage starts this job; no other label or event does.
+    if: github.event.label.name == 'sec:needs-triage'
+    runs-on: ubuntu-latest
+    steps:
+      - name: "Check out the trusted base ref"
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 #v7.0.1
+        with:
+          ref: master
+          persist-credentials: false
+      - name: "Use Node.js"
+        uses: actions/setup-node@39370e3970a6d050c480ffad4ff0ed4d3fdee5af #v4.1.0
+        with:
+          node-version: 24
+      - name: "Install application minimalistically"
+        run: npm install --ignore-scripts
+      - name: "Run triage"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+          ISSUE_BODY: ${{ github.event.issue.body }}
+        run: npx tsx lib/scripts/securityTriage/triage.ts
