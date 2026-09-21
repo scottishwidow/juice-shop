@@ -21,11 +21,12 @@ import process from 'node:process'
 
 import { computeAllowList, type BaseRefReader } from '../../authorizePatch'
 import { createBaseRefReader } from '../../baseRefReader'
+import { fetchIssueCommentsUnauthenticated } from '../../issueComments'
 import { readRemediationTests, writeRemediationArtifacts } from '../../remediationFiles'
 import { parseAlertNumber } from '../../parseAlertNumber'
 import { parseProposedPatch, PROPOSE_PATCH_TOOL_NAME, type ProposedPatch } from '../../proposedPatch'
 import { RemediationRefusal, writeRemediationRefusal } from '../../remediationRefusal'
-import { selectTrustedVerdict, type IssueComment } from '../../trustedVerdict'
+import { selectTrustedVerdict } from '../../trustedVerdict'
 import {
   buildRemediationBrief,
   extractCodeStyleRule,
@@ -58,19 +59,6 @@ function headCommit (): string {
     throw new Error('Could not resolve the checked-out base commit.')
   }
   return head
-}
-
-async function fetchIssueComments (repo: string, issueNumber: string): Promise<IssueComment[]> {
-  // Unauthenticated read of a public issue's comments. This job declares no permissions, so
-  // no GitHub token is used here; public issue comments do not require one.
-  const response = await fetch(`https://api.github.com/repos/${repo}/issues/${issueNumber}/comments`, {
-    headers: { accept: 'application/vnd.github+json' }
-  })
-  if (!response.ok) {
-    throw new Error(`Reading issue comments failed: ${response.status} ${await response.text()}`)
-  }
-  const comments = await response.json() as unknown
-  return Array.isArray(comments) ? comments as IssueComment[] : []
 }
 
 async function proposePatch (brief: string): Promise<ProposedPatch> {
@@ -147,7 +135,7 @@ async function run (): Promise<void> {
   const baseCommit = headCommit()
   const readBaseRef = createBaseRefReader(baseCommit, runGit)
 
-  const selection = selectTrustedVerdict(await fetchIssueComments(repo, issueNumber), { alertNumber, baseCommit })
+  const selection = selectTrustedVerdict(await fetchIssueCommentsUnauthenticated(repo, issueNumber), { alertNumber, baseCommit })
   if (!selection.selected) {
     throw new RemediationRefusal(selection.reason, `No remediation target was selected: ${selection.reason}`)
   }

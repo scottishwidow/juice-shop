@@ -104,7 +104,8 @@ Implemented in `.github/workflows/security-triage.yml`'s `remediate` job, runnin
 The job declares `permissions: {}` and checks out with `persist-credentials: false`
 (issue #7, ADR-0002), so it makes no authenticated GitHub API call of any kind. It reads the
 verdict `triage` already posted from an unauthenticated read of the issue's public comments,
-rather than calling the code-scanning API a second time from a job with no credentials.
+paging to the end rather than only the first 30 (issue #16), rather than calling the
+code-scanning API a second time from a job with no credentials.
 
 That read is unauthenticated, so anyone can write a comment the job sees. Which comment it
 acts on is decided by `selectTrustedVerdict` in `lib/trustedVerdict.ts`, and nowhere else:
@@ -141,7 +142,9 @@ The job holds the workflow's write credentials (`contents: write`, `pull-request
 patch author cannot write to, so the proposed diff cannot influence its own validation. Like
 `triage`, it reads the target path from the code-scanning API keyed by the alert number
 parsed from the issue body, never from the issue body itself. Coupling markers and the
-`.taskflow/allowlist.yml` override are read from that same base ref by `authorizePatch`.
+`.taskflow/allowlist.yml` override are read from that same base ref by `authorizePatch`. It
+reads the issue's comments in full, paging to the end, with its own token rather than
+spending the shared unauthenticated quota `remediate` must use (issue #16).
 
 Before delegating to `authorizePatch`, `decidePatchGate` requires `CONTRIBUTING.md`,
 `.github/PULL_REQUEST_TEMPLATE.md` and this document to be readable from the base ref. A

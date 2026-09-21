@@ -8,12 +8,12 @@
 // This is the full patch gate (issues #8 and #9). It runs in the gate job's own checkout of
 // the base ref, which the patch author cannot write to, and holds the job's write
 // credentials; it makes no model call. It reads the target path from the code-scanning API
-// keyed by the alert number, never from the issue body, selects the trusted verdict the
-// `triage` job posted, and delegates the entire decision - authorization, the regression
-// baseline, check results, commit identity and PR metadata - to `decideGateOutcome`. On
-// refusal it posts the reason as a comment and applies `sec:nopatch`; a human removes that
-// label after reading it. On an authorized diff it applies the diff, runs the gate checks,
-// and opens the pull request.
+// keyed by the alert number, never from the issue body, reads the issue's comments in full
+// with its own token (issue #16), selects the trusted verdict the `triage` job posted, and
+// delegates the entire decision - authorization, the regression baseline, check results,
+// commit identity and PR metadata - to `decideGateOutcome`. On refusal it posts the reason as
+// a comment and applies `sec:nopatch`; a human removes that label after reading it. On an
+// authorized diff it applies the diff, runs the gate checks, and opens the pull request.
 
 import { execFileSync } from 'node:child_process'
 import { readFileSync, writeFileSync, mkdtempSync, rmSync } from 'node:fs'
@@ -23,6 +23,7 @@ import process from 'node:process'
 
 import { computeAllowList } from '../../authorizePatch'
 import { createBaseRefReader } from '../../baseRefReader'
+import { fetchIssueCommentsAuthenticated } from '../../issueComments'
 import { parseAlertNumber } from '../../parseAlertNumber'
 import { decideGateOutcome, describeOutcomeRefusal, type GateOutcome } from '../../patchGate'
 import type { CheckResult } from '../../gateChecks'
@@ -30,7 +31,6 @@ import { GATE_COMMIT_IDENTITY } from '../../prCompliance'
 import { buildPrBody, buildPrTitle } from '../../prBody'
 import { parseNodeTestOutput, REGRESSION_TEST_PATH } from '../../regressionBaseline'
 import { describeRemediationRefusal, readRemediationRefusal, type RemediationRefusalReason } from '../../remediationRefusal'
-import type { IssueComment } from '../../trustedVerdict'
 
 const NOPATCH_LABEL = 'sec:nopatch'
 const REGRESSION_COMMAND = [
@@ -70,20 +70,6 @@ function readProposedDiff (path: string): string {
   } catch {
     throw new Error(`Could not read the proposed patch at ${path}; the remediate job's artifact must be downloaded first.`)
   }
-}
-
-async function fetchIssueComments (repo: string, issueNumber: string): Promise<IssueComment[]> {
-  // Unauthenticated read of the issue's public comments, matching how the credential-free
-  // `remediate` job saw them, so both jobs agree on which comment is "the" verdict
-  // independent of what this job's own token can additionally do.
-  const response = await fetch(`https://api.github.com/repos/${repo}/issues/${issueNumber}/comments`, {
-    headers: { accept: 'application/vnd.github+json' }
-  })
-  if (!response.ok) {
-    throw new Error(`Reading issue comments failed: ${response.status} ${await response.text()}`)
-  }
-  const comments = await response.json() as unknown
-  return Array.isArray(comments) ? comments as IssueComment[] : []
 }
 
 function runGit (args: string[], cwd?: string): string | undefined {
@@ -204,7 +190,11 @@ async function main (): Promise<void> {
 
   const baseCommit = headCommit()
   const readBaseRef = createBaseRefReader(baseCommit, (args) => runGit(args))
-  const comments = await fetchIssueComments(repo, issueNumber)
+  // This job holds the workflow's write credentials for every other call it makes; reading
+  // comments with the same token, instead of anonymously like the credential-free `remediate`
+  // job must, spends its own per-job quota rather than the shared per-runner unauthenticated
+  // one (issue #16).
+  const comments = await fetchIssueCommentsAuthenticated(repo, issueNumber, requireEnv('GH_TOKEN'))
   const regressionDiff = readBaseRef(`docs/agents/artifacts/alert-${alertNumber}-regression.patch`)
 
   let outcome: GateOutcome
