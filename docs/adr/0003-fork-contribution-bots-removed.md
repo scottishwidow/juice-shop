@@ -13,3 +13,8 @@ than worked around.
 
 `ci.yml` and `codeql-analysis.yml` are kept: they are the test suite and the scanner the
 workflow depends on.
+
+`stale.yml` is removed for the same reason, though it is not one of the three named above. Its
+acceptance criterion is that no remaining workflow writes to a pull request it did not open; this
+one comments on and closes any PR idle for 14 days, and its `exempt-assignees` list names
+upstream maintainers only, none of whom are active on this fork.
