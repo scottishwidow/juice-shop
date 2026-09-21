@@ -35,7 +35,7 @@ import { describeRemediationRefusal, readRemediationRefusal, type RemediationRef
 const NOPATCH_LABEL = 'sec:nopatch'
 const REGRESSION_COMMAND = [
   'node', '--import', './test/server/helpers/test-env.mjs', '--import', 'tsx',
-  '--test', '--test-force-exit', REGRESSION_TEST_PATH
+  '--test', '--test-force-exit', '--test-reporter=tap', REGRESSION_TEST_PATH
 ]
 
 interface AlertDetail {

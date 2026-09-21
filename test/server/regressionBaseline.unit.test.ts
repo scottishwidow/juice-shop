@@ -5,6 +5,8 @@
 
 import { describe, it } from 'node:test'
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 
 import {
   baselineMatchesExpectation,
@@ -14,23 +16,18 @@ import {
   REGRESSION_TEST_PATH
 } from '../../lib/regressionBaseline'
 
-const EXPECTED_FAILURE_OUTPUT = [
-  '▶ keyServer path traversal',
-  '  ✖ should reject ".." rather than resolve and serve it (6.428547ms)',
-  '  ✔ should serve requested file from folder /encryptionkeys (0.957438ms)',
-  '  ✔ should raise error for slashes in filename (0.543817ms)',
-  '✖ keyServer path traversal (10.049684ms)'
-].join('\n')
+// Real `node --test --test-reporter=tap` output, captured by actually running the trusted
+// regression (docs/agents/artifacts/alert-6-regression.patch) against the unmodified,
+// guard-fixed and import-broken handler in turn - not hand-typed strings shaped to fit the
+// parser's own regex.
+const FIXTURES_DIR = join(__dirname, 'fixtures', 'regressionBaseline')
+function loadFixture (name: string): string {
+  return readFileSync(join(FIXTURES_DIR, name), 'utf8')
+}
 
-const ALL_PASS_OUTPUT = [
-  '▶ keyServer path traversal',
-  '  ✔ should reject ".." rather than resolve and serve it (6.428547ms)',
-  '  ✔ should serve requested file from folder /encryptionkeys (0.957438ms)',
-  '  ✔ should raise error for slashes in filename (0.543817ms)',
-  '✔ keyServer path traversal (10.049684ms)'
-].join('\n')
-
-const LOADER_CRASH_OUTPUT = 'node:internal/modules/cjs/loader:1234\n  throw err;\n  ^\n\nError: Cannot find module \'../../routes/keyServer\''
+const EXPECTED_FAILURE_OUTPUT = loadFixture('baseline-failure.tap')
+const ALL_PASS_OUTPUT = loadFixture('all-pass.tap')
+const LOADER_CRASH_OUTPUT = loadFixture('loader-crash.tap')
 
 function diffAddingFile (path: string, addedLines: string[]): string {
   const hunkBody = addedLines.map(line => `+${line}`).join('\n')
@@ -61,12 +58,13 @@ void describe('parseNodeTestOutput', () => {
     assert.equal(summary.errored, false)
   })
 
-  void it('flags a loader crash as errored rather than a clean run', () => {
+  void it('reads a loader crash as a single failed leaf named after the crashing file, not the traversal assertion', () => {
     const summary = parseNodeTestOutput(LOADER_CRASH_OUTPUT)
 
-    assert.equal(summary.errored, true)
+    assert.equal(summary.errored, false)
     assert.equal(summary.passed.length, 0)
-    assert.equal(summary.failed.length, 0)
+    assert.equal(summary.failed.length, 1)
+    assert.notEqual(summary.failed[0], 'should reject ".." rather than resolve and serve it')
   })
 
   void it('flags empty output (a missing test) as errored', () => {

@@ -91,7 +91,7 @@ npx tsc --noEmit
 npx eslint <allow-listed paths>
 npm run test:server
 npm run test:api
-node --import ./test/server/helpers/test-env.mjs --import tsx --test --test-force-exit <the target regression test>
+node --import ./test/server/helpers/test-env.mjs --import tsx --test --test-force-exit --test-reporter=tap <the target regression test>
 ```
 
 `npm run rsn` and `npm run lint:config` are not run: the allow-list makes both unreachable.
@@ -255,7 +255,7 @@ To reproduce the baseline in a disposable checkout with dependencies installed:
 
 ```sh
 git apply docs/agents/artifacts/alert-6-regression.patch
-node --import ./test/server/helpers/test-env.mjs --import tsx --test --test-force-exit test/server/keyServerPathTraversal.unit.test.ts
+node --import ./test/server/helpers/test-env.mjs --import tsx --test --test-force-exit --test-reporter=tap test/server/keyServerPathTraversal.unit.test.ts
 ```
 
 Expected result on the unmodified handler: three tests, two passes, and one assertion
@@ -282,5 +282,5 @@ test addition. This trusted test addition must be supported in #9 before demonst
 The gate's explicit regression command is:
 
 ```
-node --import ./test/server/helpers/test-env.mjs --import tsx --test --test-force-exit test/server/keyServerPathTraversal.unit.test.ts
+node --import ./test/server/helpers/test-env.mjs --import tsx --test --test-force-exit --test-reporter=tap test/server/keyServerPathTraversal.unit.test.ts
 ```
