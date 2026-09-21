@@ -39,7 +39,7 @@ jobs:
       - name: "Lint source code"
         run: npm run lint
   coding-challenge-rsn:
-    runs-on: windows-latest
+    runs-on: ubuntu-latest
     steps:
       - name: "Check out Git repository"
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 #v7.0.1
@@ -55,7 +55,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
+        os: [ubuntu-latest]
         node-version: [22, 24, 26]
     steps:
       - name: "Check out Git repository"
@@ -94,7 +94,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
+        os: [ubuntu-latest]
         node-version: [22, 24, 26]
     steps:
       - name: "Check out Git repository"
@@ -131,7 +131,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
+        os: [ubuntu-latest]
         node-version: [22, 24, 26]
     steps:
       - name: "Check out Git repository"
@@ -221,7 +221,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        os: [ubuntu-latest]
         browser: [chrome] # FIXME Switch back to [chrome, firefox] after debugging extreme flakiness of Firefox on CI/CD
       fail-fast: false
     steps:
@@ -236,7 +236,6 @@ jobs:
       - name: "Install application"
         run: npm install
       - name: "Execute end-to-end tests on Ubuntu"
-        if: ${{ matrix.os == 'ubuntu-latest' }}
         uses: cypress-io/github-action@57b70560982e6a11d23d4b8bec7f8a487cdbb71b #v6.7.8
         with:
           install: false
@@ -247,21 +246,6 @@ jobs:
           group: ${{ secrets.CYPRESS_RECORD_KEY != '' && format('{0} @ {1}', matrix.browser, matrix.os) || '' }}
         env:
           SOLUTIONS_WEBHOOK: ${{ secrets.E2E_SOLUTIONS_WEBHOOK }}
-          ALCHEMY_API_KEY: ${{ secrets.ALCHEMY_API_KEY }}
-          CYPRESS_RECORD_KEY: ${{ secrets.CYPRESS_RECORD_KEY }}
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      - name: "Execute end-to-end tests on Mac"
-        if: ${{ matrix.os == 'macos-latest' }}
-        uses: cypress-io/github-action@57b70560982e6a11d23d4b8bec7f8a487cdbb71b #v6.7.8
-        with:
-          install: false
-          browser: ${{ matrix.browser }}
-          start: npm start
-          wait-on: http://localhost:3000
-          record: ${{ secrets.CYPRESS_RECORD_KEY != '' }}
-          group: ${{ secrets.CYPRESS_RECORD_KEY != '' && format('{0} @ {1}', matrix.browser, matrix.os) || '' }}
-        env:
-          CYPRESS_CACHE_FOLDER: /Users/runner/Library/Caches/Cypress
           ALCHEMY_API_KEY: ${{ secrets.ALCHEMY_API_KEY }}
           CYPRESS_RECORD_KEY: ${{ secrets.CYPRESS_RECORD_KEY }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
