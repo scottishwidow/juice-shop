@@ -31,9 +31,13 @@ Triggered by `on: issues: types: [labeled]`.
 
 | Job | Permissions | Does |
 | --- | --- | --- |
-| `triage` | `issues: write` | reads the alert, calls the model, posts the verdict |
+| `triage` | `issues: write`, `security-events: read` | reads the alert, calls the model, posts the verdict |
 | `remediate` | `{}` | calls the model, writes a patch to an artifact |
-| `gate` | `contents: write`, `pull-requests: write` | applies and checks the patch, opens the pull request or records NOPATCH |
+| `gate` | `contents: write`, `pull-requests: write`, `issues: write`, `security-events: read` | applies and checks the patch, opens the pull request or records NOPATCH |
+
+`security-events: read` is the scope the code-scanning API requires. Both jobs that key a
+finding by its alert number need it; `remediate` does not, because it reads the verdict from
+the issue's public comments and makes no scanner call.
 
 `remediate` must check out with `persist-credentials: false`. The `triage` job's write
 permission is comment creation only.
