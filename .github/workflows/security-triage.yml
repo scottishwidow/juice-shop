@@ -55,6 +55,10 @@ jobs:
           ISSUE_BODY: ${{ github.event.issue.body }}
         run: npx tsx lib/scripts/securityTriage/remediate.ts
       - name: "Upload proposed patch"
+        # Runs even if "Run remediate" failed: a categorized refusal (or the catch-all
+        # `unexpected-error`) is still written to patch-author-output/refusal.json (issue #15),
+        # and the gate job below must see it to report the refusal instead of running silent.
+        if: always()
         uses: actions/upload-artifact@6f51ac03b9356f520e9adb1b1b7802705f340c2b #v4.5.0
         with:
           name: proposed-patch-${{ github.event.issue.number }}
@@ -67,8 +71,13 @@ jobs:
     # to, so a patch cannot influence its own validation. Issue #8 implements only the
     # refusal path; applying an authorized diff, running checks and opening a pull request
     # are issue #9.
+    #
+    # Runs even if `remediate` failed (`always()`): the patch author holds no credential and
+    # cannot post its own refusal, so this job - the only one in the labelling event with
+    # `issues: write` - must still run to report it (issue #15). The label guard is unchanged,
+    # so an unrelated labelling event still runs neither job.
     needs: remediate
-    if: success() && github.event.label.name == 'sec:ready-for-remediation'
+    if: always() && github.event.label.name == 'sec:ready-for-remediation'
     permissions:
       contents: write
       pull-requests: write
@@ -86,6 +95,10 @@ jobs:
       - name: "Install application minimalistically"
         run: npm install --ignore-scripts
       - name: "Download proposed patch"
+        # continue-on-error covers the rare case where `remediate` crashed before writing
+        # anything at all, so no artifact exists to download. "Run gate" below still reports
+        # that to the maintainer instead of running with stale or missing input.
+        continue-on-error: true
         uses: actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16 #v4.1.8
         with:
           name: proposed-patch-${{ github.event.issue.number }}

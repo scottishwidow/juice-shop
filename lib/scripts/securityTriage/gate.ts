@@ -18,7 +18,7 @@
 import { execFileSync } from 'node:child_process'
 import { readFileSync, writeFileSync, mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join, resolve } from 'node:path'
+import { dirname, join, resolve } from 'node:path'
 import process from 'node:process'
 
 import { computeAllowList } from '../../authorizePatch'
@@ -29,6 +29,7 @@ import type { CheckResult } from '../../gateChecks'
 import { GATE_COMMIT_IDENTITY } from '../../prCompliance'
 import { buildPrBody, buildPrTitle } from '../../prBody'
 import { parseNodeTestOutput, REGRESSION_TEST_PATH } from '../../regressionBaseline'
+import { describeRemediationRefusal, readRemediationRefusal, type RemediationRefusalReason } from '../../remediationRefusal'
 import type { IssueComment } from '../../trustedVerdict'
 
 const NOPATCH_LABEL = 'sec:nopatch'
@@ -132,6 +133,21 @@ function commitTrailerOf (cwd: string, ref: string): string {
   return runGit(['show', '-s', '--format=%an%n%ae%n%B', ref], cwd) ?? ''
 }
 
+function buildPatchAuthorRefusalComment (alert: AlertDetail, alertNumber: number, reason: RemediationRefusalReason): string {
+  return [
+    `**Patch author refused** (\`${reason}\`)`,
+    '',
+    describeRemediationRefusal(reason),
+    '',
+    `- Alert: \`${alert.ruleId}\` #${alertNumber}`,
+    `- Target: \`${alert.path}\``,
+    '',
+    'Refusal is terminal: retry-with-feedback exists but is disabled, so a second attempt ' +
+    'cannot quietly succeed and conceal that this one was refused. A human should remove ' +
+    `\`${NOPATCH_LABEL}\` only after reading this reason.`
+  ].join('\n')
+}
+
 async function main (): Promise<void> {
   const repo = requireEnv('GITHUB_REPOSITORY')
   const issueNumber = requireEnv('ISSUE_NUMBER')
@@ -150,7 +166,42 @@ async function main (): Promise<void> {
   }
 
   const alert = fetchAlertDetail(repo, alertNumber)
-  const proposedDiff = readProposedDiff(proposedPatchPath)
+
+  // The `remediate` job holds `permissions: {}` and cannot post its own refusal reason
+  // (issue #15); it writes one to this same artifact directory instead, and this job - which
+  // already holds `issues: write` - reports it here, before any patch is applied or checked.
+  const patchAuthorRefusal = readRemediationRefusal(dirname(proposedPatchPath))
+  if (patchAuthorRefusal !== undefined) {
+    gh(['issue', 'comment', issueNumber, '--repo', repo, '--body',
+      buildPatchAuthorRefusalComment(alert, alertNumber, patchAuthorRefusal.reason)])
+    gh(['issue', 'edit', issueNumber, '--repo', repo, '--add-label', NOPATCH_LABEL])
+    process.exitCode = 1
+    return
+  }
+
+  let proposedDiff: string
+  try {
+    proposedDiff = readProposedDiff(proposedPatchPath)
+  } catch {
+    // Neither a refusal reason nor a proposal was produced: the job likely crashed before
+    // writing anything. Still terminal, still reported - a base-commit mismatch between the
+    // two jobs' checkouts is the most likely mundane cause; re-running triage clears it.
+    gh(['issue', 'comment', issueNumber, '--repo', repo, '--body', [
+      '**Patch author produced no output**',
+      '',
+      'Neither a proposed patch nor a categorized refusal reason was found for this alert. ' +
+      'The most likely cause is a base-commit mismatch between the `remediate` and `gate` ' +
+      'checkouts (a push landed between triage and this label); re-run triage and reapply ' +
+      'the label. Otherwise, check the `remediate` job log.',
+      '',
+      `- Alert: \`${alert.ruleId}\` #${alertNumber}`,
+      `- Target: \`${alert.path}\``
+    ].join('\n')])
+    gh(['issue', 'edit', issueNumber, '--repo', repo, '--add-label', NOPATCH_LABEL])
+    process.exitCode = 1
+    return
+  }
+
   const baseCommit = headCommit()
   const readBaseRef = createBaseRefReader(baseCommit, (args) => runGit(args))
   const comments = await fetchIssueComments(repo, issueNumber)

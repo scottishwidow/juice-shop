@@ -23,8 +23,9 @@ import { computeAllowList, type BaseRefReader } from '../../authorizePatch'
 import { createBaseRefReader } from '../../baseRefReader'
 import { readRemediationTests, writeRemediationArtifacts } from '../../remediationFiles'
 import { parseAlertNumber } from '../../parseAlertNumber'
-import { describeProposalRefusal, parseProposedPatch, PROPOSE_PATCH_TOOL_NAME, type ProposedPatch } from '../../proposedPatch'
-import { describeVerdictRefusal, selectTrustedVerdict, type IssueComment } from '../../trustedVerdict'
+import { parseProposedPatch, PROPOSE_PATCH_TOOL_NAME, type ProposedPatch } from '../../proposedPatch'
+import { RemediationRefusal, writeRemediationRefusal } from '../../remediationRefusal'
+import { selectTrustedVerdict, type IssueComment } from '../../trustedVerdict'
 import {
   buildRemediationBrief,
   extractCodeStyleRule,
@@ -119,7 +120,7 @@ async function proposePatch (brief: string): Promise<ProposedPatch> {
 
   const result = parseProposedPatch(await response.json())
   if (!result.valid) {
-    throw new Error(`Nothing was written: ${describeProposalRefusal(result.reason)}`)
+    throw new RemediationRefusal(result.reason, `Nothing was written: ${result.reason}`)
   }
   return result.patch
 }
@@ -128,19 +129,19 @@ function readRequiredPolicy (readBaseRef: BaseRefReader, path: string, extract: 
   const doc = readBaseRef(path)
   const extracted = doc !== undefined ? extract(doc) : undefined
   if (extracted === undefined) {
-    throw new Error(`Could not read ${description} from ${path} on the base ref.`)
+    throw new RemediationRefusal('required-policy-unreadable', `Could not read ${description} from ${path} on the base ref.`)
   }
   return extracted
 }
 
-async function main (): Promise<void> {
+async function run (): Promise<void> {
   const repo = requireEnv('GITHUB_REPOSITORY')
   const issueNumber = requireEnv('ISSUE_NUMBER')
   const issueBody = process.env.ISSUE_BODY ?? ''
 
   const alertNumber = parseAlertNumber(issueBody)
   if (alertNumber === undefined) {
-    throw new Error('Could not find an alert reference in this issue body (expected text such as `alert #6`).')
+    throw new RemediationRefusal('no-alert-reference', 'Could not find an alert reference in this issue body (expected text such as `alert #6`).')
   }
 
   const baseCommit = headCommit()
@@ -148,16 +149,16 @@ async function main (): Promise<void> {
 
   const selection = selectTrustedVerdict(await fetchIssueComments(repo, issueNumber), { alertNumber, baseCommit })
   if (!selection.selected) {
-    throw new Error(`No remediation target was selected (\`${selection.reason}\`): ${describeVerdictRefusal(selection.reason)}`)
+    throw new RemediationRefusal(selection.reason, `No remediation target was selected: ${selection.reason}`)
   }
   const verdict = selection.verdict
   if (verdict.isTestCode) {
-    throw new Error('The triaged finding is test code (not-applicable); remediation does not apply.')
+    throw new RemediationRefusal('test-code-not-applicable', 'The triaged finding is test code (not-applicable); remediation does not apply.')
   }
 
   const targetContent = readBaseRef(verdict.path)
   if (targetContent === undefined) {
-    throw new Error(`\`${verdict.path}\` is not a readable tracked file at base commit ${baseCommit}.`)
+    throw new RemediationRefusal('target-unreadable', `\`${verdict.path}\` is not a readable tracked file at base commit ${baseCommit}.`)
   }
 
   const allowList = computeAllowList(verdict.path, alertNumber, readBaseRef)
@@ -198,6 +199,20 @@ async function main (): Promise<void> {
   writeRemediationArtifacts(OUTPUT_DIR, brief, proposal)
 
   console.log(`Wrote proposal for alert #${alertNumber} at base ${baseCommit} to ${OUTPUT_DIR}/`)
+}
+
+// Every refusal, categorized or not, is written to the artifact the credential-free job
+// already uploads: the gate job holds `issues: write` and reports it (issue #15). The job
+// still exits non-zero so a refusal stays visible in the Actions run itself.
+async function main (): Promise<void> {
+  try {
+    await run()
+  } catch (error) {
+    const reason = error instanceof RemediationRefusal ? error.reason : 'unexpected-error'
+    writeRemediationRefusal(OUTPUT_DIR, reason)
+    console.error(error)
+    process.exitCode = 1
+  }
 }
 
 main().catch((error: unknown) => {

@@ -207,6 +207,19 @@ the label after reading it. Feeding a rejection back for a second attempt is imp
 but disabled and never called by `gate.ts`: a retry that succeeds on the second attempt would
 hide that the first was refused.
 
+A patch-author refusal is reported the same way, even though `remediate` holds no credential
+to post it itself (issue #15). On any refusal - a rejected verdict selection, test-code, an
+unreadable target or policy file, or a rejected model proposal - `remediate.ts` writes the
+reason to `patch-author-output/refusal.json` (`lib/remediationRefusal.ts`) instead of only
+throwing, and still exits non-zero so the failure stays visible in the Actions run. The `gate`
+job now runs whether or not `remediate` succeeded (`if: always()`, still gated on the same
+label), reads that file before touching any proposed diff, and posts the reason as a comment
+distinguishable by its reason code, then applies `sec:nopatch`. A base-commit mismatch between
+the two jobs' checkouts - the most likely trigger, since both check out the same moving branch
+- produces the same reporting path and its description tells the maintainer to re-run triage.
+If `remediate` crashed before writing anything at all, `gate` reports that too rather than
+running with missing input.
+
 ## Remediation target
 
 This section is working state, not a decision: the target may change if the scanner
