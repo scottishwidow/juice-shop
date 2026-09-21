@@ -26,8 +26,8 @@ import { createBaseRefReader } from '../../baseRefReader'
 import { fetchIssueCommentsAuthenticated } from '../../issueComments'
 import { parseAlertNumber } from '../../parseAlertNumber'
 import { decideGateOutcome, describeOutcomeRefusal, type GateOutcome } from '../../patchGate'
-import type { CheckResult } from '../../gateChecks'
-import { GATE_COMMIT_IDENTITY, type CommitRecord } from '../../prCompliance'
+import { allChecksPassed, type CheckResult } from '../../gateChecks'
+import { affirmationSatisfied, everyCommitAuthorizedAndSignedOff, GATE_COMMIT_IDENTITY, type CommitRecord } from '../../prCompliance'
 import { buildPrBody, buildPrTitle } from '../../prBody'
 import { parseNodeTestOutput, REGRESSION_TEST_PATH } from '../../regressionBaseline'
 import { describeRemediationRefusal, readRemediationRefusal, type RemediationRefusalReason } from '../../remediationRefusal'
@@ -296,8 +296,13 @@ async function main (): Promise<void> {
       })
       execFileSync('git', ['push', 'origin', branchName], { encoding: 'utf8' })
 
+      const affirmationChecked = affirmationSatisfied(
+        outcome.prMetadata,
+        allChecksPassed(checkResults),
+        everyCommitAuthorizedAndSignedOff(commits).ok
+      )
       const bodyPath = join(worktreeDir, '..', `pr-body-${issueNumber}.md`)
-      writeFileSync(bodyPath, buildPrBody(outcome.prMetadata, true))
+      writeFileSync(bodyPath, buildPrBody(outcome.prMetadata, affirmationChecked))
 
       const prUrl = gh([
         'pr', 'create',

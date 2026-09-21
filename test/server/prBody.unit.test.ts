@@ -7,7 +7,7 @@ import { describe, it } from 'node:test'
 import assert from 'node:assert/strict'
 
 import { buildPrBody, buildPrTitle } from '../../lib/prBody'
-import type { PrMetadata } from '../../lib/prCompliance'
+import { affirmationSatisfied, type PrMetadata } from '../../lib/prCompliance'
 
 function metadata (overrides: Partial<PrMetadata> = {}): PrMetadata {
   return {
@@ -75,5 +75,16 @@ void describe('buildPrBody', () => {
 
     assert.match(checked, /- \[x] My code follows/)
     assert.match(unchecked, /- \[ ] My code follows/)
+  })
+
+  void it('renders an unchecked Affirmation when affirmationSatisfied finds a required condition unmet', () => {
+    // Wires affirmationSatisfied's own result into buildPrBody, the way the gate script does,
+    // rather than asserting on a hand-picked boolean (issue #18).
+    const affirmationChecked = affirmationSatisfied(metadata(), false, true)
+
+    const body = buildPrBody(metadata(), affirmationChecked)
+
+    assert.equal(affirmationChecked, false)
+    assert.match(body, /- \[ ] My code follows/)
   })
 })
