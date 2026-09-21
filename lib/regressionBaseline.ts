@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: MIT
  */
 
-import { parsePatch } from 'diff'
+import { touchedPathsOf } from './diffFacts'
 
 // The fixed validation input from docs/agents/security-triage.md's "Baseline delivery"
 // section: the trusted regression the gate reads from the base ref and owns the application
@@ -68,18 +68,6 @@ export function baselineMatchesExpectation (summary: TestRunSummary): boolean {
  */
 export function regressionFullyPasses (summary: TestRunSummary): boolean {
   return !summary.errored && summary.failed.length === 0 && summary.passed.length === 3
-}
-
-function touchedPathsOf (diff: string): Set<string> {
-  const touched = new Set<string>()
-  for (const patch of parsePatch(diff)) {
-    for (const fileName of [patch.oldFileName, patch.newFileName]) {
-      if (fileName !== undefined && fileName !== '/dev/null') {
-        touched.add(fileName.replace(/^[ab]\//, ''))
-      }
-    }
-  }
-  return touched
 }
 
 /**

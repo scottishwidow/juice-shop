@@ -3,8 +3,9 @@
  * SPDX-License-Identifier: MIT
  */
 
-import { parsePatch } from 'diff'
 import yaml from 'js-yaml'
+
+import { addedLinesOf, touchedPathsOf } from './diffFacts'
 
 export type BaseRefReader = (path: string) => string | undefined
 
@@ -32,38 +33,6 @@ interface AllowlistOverrideEntry {
 
 function countOccurrences (content: string, marker: string): number {
   return content.split(marker).length - 1
-}
-
-function normalizePatchPath (fileName: string | undefined): string | undefined {
-  if (fileName === undefined || fileName === '/dev/null') {
-    return undefined
-  }
-  return fileName.replace(/^[ab]\//, '')
-}
-
-function touchedPathsOf (diff: string): Set<string> {
-  const touched = new Set<string>()
-  for (const patch of parsePatch(diff)) {
-    const oldPath = normalizePatchPath(patch.oldFileName)
-    const newPath = normalizePatchPath(patch.newFileName)
-    if (oldPath !== undefined) touched.add(oldPath)
-    if (newPath !== undefined) touched.add(newPath)
-  }
-  return touched
-}
-
-function addedLinesOf (diff: string): string[] {
-  const added: string[] = []
-  for (const patch of parsePatch(diff)) {
-    for (const hunk of patch.hunks) {
-      for (const line of hunk.lines) {
-        if (line.startsWith('+') && !line.startsWith('+++')) {
-          added.push(line.slice(1))
-        }
-      }
-    }
-  }
-  return added
 }
 
 function overrideAllowedPaths (readBaseRef: BaseRefReader): Set<string> {
