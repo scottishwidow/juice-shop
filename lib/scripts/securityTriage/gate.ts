@@ -8,33 +8,34 @@
 // This is the full patch gate (issues #8 and #9). It runs in the gate job's own checkout of
 // the base ref, which the patch author cannot write to, and holds the job's write
 // credentials; it makes no model call. It reads the target path from the code-scanning API
-// keyed by the alert number, never from the issue body, selects the trusted verdict the
-// `triage` job posted, and delegates the entire decision - authorization, the regression
-// baseline, check results, commit identity and PR metadata - to `decideGateOutcome`. On
-// refusal it posts the reason as a comment and applies `sec:nopatch`; a human removes that
-// label after reading it. On an authorized diff it applies the diff, runs the gate checks,
-// and opens the pull request.
+// keyed by the alert number, never from the issue body, reads the issue's comments in full
+// with its own token (issue #16), selects the trusted verdict the `triage` job posted, and
+// delegates the entire decision - authorization, the regression baseline, check results,
+// commit identity and PR metadata - to `decideGateOutcome`. On refusal it posts the reason as
+// a comment and applies `sec:nopatch`; a human removes that label after reading it. On an
+// authorized diff it applies the diff, runs the gate checks, and opens the pull request.
 
 import { execFileSync } from 'node:child_process'
 import { readFileSync, writeFileSync, mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join, resolve } from 'node:path'
+import { dirname, join, resolve } from 'node:path'
 import process from 'node:process'
 
 import { computeAllowList } from '../../authorizePatch'
 import { createBaseRefReader } from '../../baseRefReader'
+import { fetchIssueCommentsAuthenticated } from '../../issueComments'
 import { parseAlertNumber } from '../../parseAlertNumber'
 import { decideGateOutcome, describeOutcomeRefusal, type GateOutcome } from '../../patchGate'
-import type { CheckResult } from '../../gateChecks'
-import { GATE_COMMIT_IDENTITY } from '../../prCompliance'
+import { allChecksPassed, type CheckResult } from '../../gateChecks'
+import { affirmationSatisfied, everyCommitAuthorizedAndSignedOff, GATE_COMMIT_IDENTITY, type CommitRecord } from '../../prCompliance'
 import { buildPrBody, buildPrTitle } from '../../prBody'
 import { parseNodeTestOutput, REGRESSION_TEST_PATH } from '../../regressionBaseline'
-import type { IssueComment } from '../../trustedVerdict'
+import { describeRemediationRefusal, readRemediationRefusal, type RemediationRefusalReason } from '../../remediationRefusal'
 
 const NOPATCH_LABEL = 'sec:nopatch'
 const REGRESSION_COMMAND = [
   'node', '--import', './test/server/helpers/test-env.mjs', '--import', 'tsx',
-  '--test', '--test-force-exit', REGRESSION_TEST_PATH
+  '--test', '--test-force-exit', '--test-reporter=tap', REGRESSION_TEST_PATH
 ]
 
 interface AlertDetail {
@@ -69,20 +70,6 @@ function readProposedDiff (path: string): string {
   } catch {
     throw new Error(`Could not read the proposed patch at ${path}; the remediate job's artifact must be downloaded first.`)
   }
-}
-
-async function fetchIssueComments (repo: string, issueNumber: string): Promise<IssueComment[]> {
-  // Unauthenticated read of the issue's public comments, matching how the credential-free
-  // `remediate` job saw them, so both jobs agree on which comment is "the" verdict
-  // independent of what this job's own token can additionally do.
-  const response = await fetch(`https://api.github.com/repos/${repo}/issues/${issueNumber}/comments`, {
-    headers: { accept: 'application/vnd.github+json' }
-  })
-  if (!response.ok) {
-    throw new Error(`Reading issue comments failed: ${response.status} ${await response.text()}`)
-  }
-  const comments = await response.json() as unknown
-  return Array.isArray(comments) ? comments as IssueComment[] : []
 }
 
 function runGit (args: string[], cwd?: string): string | undefined {
@@ -128,8 +115,19 @@ function applyDiff (cwd: string, diffText: string): boolean {
   }
 }
 
-function commitTrailerOf (cwd: string, ref: string): string {
-  return runGit(['show', '-s', '--format=%an%n%ae%n%B', ref], cwd) ?? ''
+function buildPatchAuthorRefusalComment (alert: AlertDetail, alertNumber: number, reason: RemediationRefusalReason): string {
+  return [
+    `**Patch author refused** (\`${reason}\`)`,
+    '',
+    describeRemediationRefusal(reason),
+    '',
+    `- Alert: \`${alert.ruleId}\` #${alertNumber}`,
+    `- Target: \`${alert.path}\``,
+    '',
+    'Refusal is terminal: a second attempt is never made automatically, so it cannot ' +
+    'quietly succeed and conceal that this one was refused. A human should remove ' +
+    `\`${NOPATCH_LABEL}\` only after reading this reason.`
+  ].join('\n')
 }
 
 async function main (): Promise<void> {
@@ -150,10 +148,49 @@ async function main (): Promise<void> {
   }
 
   const alert = fetchAlertDetail(repo, alertNumber)
-  const proposedDiff = readProposedDiff(proposedPatchPath)
+
+  // The `remediate` job holds `permissions: {}` and cannot post its own refusal reason
+  // (issue #15); it writes one to this same artifact directory instead, and this job - which
+  // already holds `issues: write` - reports it here, before any patch is applied or checked.
+  const patchAuthorRefusal = readRemediationRefusal(dirname(proposedPatchPath))
+  if (patchAuthorRefusal !== undefined) {
+    gh(['issue', 'comment', issueNumber, '--repo', repo, '--body',
+      buildPatchAuthorRefusalComment(alert, alertNumber, patchAuthorRefusal.reason)])
+    gh(['issue', 'edit', issueNumber, '--repo', repo, '--add-label', NOPATCH_LABEL])
+    process.exitCode = 1
+    return
+  }
+
+  let proposedDiff: string
+  try {
+    proposedDiff = readProposedDiff(proposedPatchPath)
+  } catch {
+    // Neither a refusal reason nor a proposal was produced: the job likely crashed before
+    // writing anything. Still terminal, still reported - a base-commit mismatch between the
+    // two jobs' checkouts is the most likely mundane cause; re-running triage clears it.
+    gh(['issue', 'comment', issueNumber, '--repo', repo, '--body', [
+      '**Patch author produced no output**',
+      '',
+      'Neither a proposed patch nor a categorized refusal reason was found for this alert. ' +
+      'The most likely cause is a base-commit mismatch between the `remediate` and `gate` ' +
+      'checkouts (a push landed between triage and this label); re-run triage and reapply ' +
+      'the label. Otherwise, check the `remediate` job log.',
+      '',
+      `- Alert: \`${alert.ruleId}\` #${alertNumber}`,
+      `- Target: \`${alert.path}\``
+    ].join('\n')])
+    gh(['issue', 'edit', issueNumber, '--repo', repo, '--add-label', NOPATCH_LABEL])
+    process.exitCode = 1
+    return
+  }
+
   const baseCommit = headCommit()
   const readBaseRef = createBaseRefReader(baseCommit, (args) => runGit(args))
-  const comments = await fetchIssueComments(repo, issueNumber)
+  // This job holds the workflow's write credentials for every other call it makes; reading
+  // comments with the same token, instead of anonymously like the credential-free `remediate`
+  // job must, spends its own per-job quota rather than the shared per-runner unauthenticated
+  // one (issue #16).
+  const comments = await fetchIssueCommentsAuthenticated(repo, issueNumber, requireEnv('GH_TOKEN'))
   const regressionDiff = readBaseRef(`docs/agents/artifacts/alert-${alertNumber}-regression.patch`)
 
   let outcome: GateOutcome
@@ -163,8 +200,6 @@ async function main (): Promise<void> {
     worktreeDir = mkdtempSync(join(tmpdir(), 'patch-gate-'))
     rmSync(worktreeDir, { recursive: true, force: true })
     execFileSync('git', ['worktree', 'add', '--detach', worktreeDir, baseCommit], { encoding: 'utf8' })
-    runGit(['config', 'user.name', GATE_COMMIT_IDENTITY.name], worktreeDir)
-    runGit(['config', 'user.email', GATE_COMMIT_IDENTITY.email], worktreeDir)
     execFileSync('ln', ['-s', resolve('node_modules'), join(worktreeDir, 'node_modules')])
 
     const baselinePre = regressionDiff !== undefined && applyDiff(worktreeDir, regressionDiff)
@@ -175,8 +210,22 @@ async function main (): Promise<void> {
     runGit(['checkout', '--', '.'], worktreeDir)
     runGit(['clean', '-fd', '--', REGRESSION_TEST_PATH], worktreeDir)
 
-    const finalDiff = regressionDiff !== undefined ? `${regressionDiff}\n${proposedDiff}` : proposedDiff
     const combinedApplied = regressionDiff !== undefined && applyDiff(worktreeDir, regressionDiff) && applyDiff(worktreeDir, proposedDiff)
+
+    // Stage everything the two diffs actually produced in this worktree, so `git diff` below
+    // reports the real tree - added files included - rather than only tracked-file edits.
+    if (combinedApplied) {
+      execFileSync('git', ['add', '-A'], { cwd: worktreeDir })
+    }
+
+    // What decideGateOutcome checks against "regression + proposal" is the tree the two diffs
+    // actually produced when applied to a clean checkout of the base commit, not a string this
+    // script composed by concatenation: an unexpected side effect of applying them - a stray
+    // file, a fuzzy-matched hunk landing somewhere unintended - is visible here instead of
+    // trivially passing (issue #17).
+    const finalDiff = combinedApplied
+      ? (runGit(['diff', baseCommit], worktreeDir) ?? '')
+      : (regressionDiff !== undefined ? `${regressionDiff}\n${proposedDiff}` : proposedDiff)
 
     const checkResults: CheckResult[] = []
     let baselinePost = { passed: [] as string[], failed: [] as string[], errored: true }
@@ -185,7 +234,7 @@ async function main (): Promise<void> {
       checkResults.push(regressionRun.result)
       baselinePost = regressionRun.summary
 
-      const allowList = computeAllowList(alert.path, readBaseRef)
+      const allowList = computeAllowList(alert.path, alertNumber, readBaseRef)
       checkResults.push(runCommand('typecheck', 'npx', ['tsc', '--noEmit'], worktreeDir))
       checkResults.push(runCommand('lint', 'npx', ['eslint', ...allowList.paths], worktreeDir))
       checkResults.push(runCommand('test:server', 'npm', ['run', 'test:server'], worktreeDir))
@@ -194,25 +243,17 @@ async function main (): Promise<void> {
       checkResults.push({ name: 'regression', command: REGRESSION_COMMAND.join(' '), passed: false, output: 'Could not apply the regression and proposed diffs together.' })
     }
 
-    // Commit the combined diff on a disposable branch inside the worktree so its own commit
-    // metadata (author/committer/trailer) can be inspected before anything is pushed.
-    let commits: Array<{ authorName: string, authorEmail: string, trailer: string }> = []
-    if (combinedApplied) {
-      execFileSync('git', ['add', '-A'], { cwd: worktreeDir })
-      try {
-        execFileSync('git', [
-          'commit', '-s', '-m',
-          `fix(security): remediate ${alert.ruleId} at ${alert.path} (alert #${alertNumber})`
-        ], { cwd: worktreeDir, encoding: 'utf8' })
-        const raw = commitTrailerOf(worktreeDir, 'HEAD')
-        const [authorName, authorEmail, ...rest] = raw.split('\n')
-        commits = [{ authorName: authorName ?? '', authorEmail: authorEmail ?? '', trailer: rest.join('\n') }]
-      } catch {
-        // No commit means nothing to authorize; a manifestly unauthorized placeholder record
-        // forces the identity check to refuse rather than pass vacuously over an empty list.
-        commits = [{ authorName: '', authorEmail: '', trailer: '' }]
-      }
-    }
+    // The identity every commit the gate makes carries is set directly, never re-derived: the
+    // gate never authors a commit under any identity but its own (the real commit below sets
+    // GIT_AUTHOR_NAME/EMAIL to the same constant), so there is nothing to read back and
+    // compare (issue #17). An empty list when nothing applied leaves nothing to authorize.
+    const commits: CommitRecord[] = combinedApplied
+      ? [{
+          authorName: GATE_COMMIT_IDENTITY.name,
+          authorEmail: GATE_COMMIT_IDENTITY.email,
+          trailer: `Signed-off-by: ${GATE_COMMIT_IDENTITY.name} <${GATE_COMMIT_IDENTITY.email}>`
+        }]
+      : []
 
     outcome = decideGateOutcome({
       repo,
@@ -233,8 +274,8 @@ async function main (): Promise<void> {
     })
 
     if (outcome.allowed) {
-      // Replay the same commit onto the live checkout (the one with push credentials), never
-      // pushing directly from the worktree.
+      // Apply the same authorized diff to the live checkout (the one with push credentials),
+      // never pushing directly from the validation worktree.
       const branchName = `security/alert-${alertNumber}-${baseCommit.slice(0, 12)}`
       execFileSync('git', ['checkout', '-b', branchName], { encoding: 'utf8' })
       if (!applyDiff('.', finalDiff)) {
@@ -255,8 +296,13 @@ async function main (): Promise<void> {
       })
       execFileSync('git', ['push', 'origin', branchName], { encoding: 'utf8' })
 
+      const affirmationChecked = affirmationSatisfied(
+        outcome.prMetadata,
+        allChecksPassed(checkResults),
+        everyCommitAuthorizedAndSignedOff(commits).ok
+      )
       const bodyPath = join(worktreeDir, '..', `pr-body-${issueNumber}.md`)
-      writeFileSync(bodyPath, buildPrBody(outcome.prMetadata, true))
+      writeFileSync(bodyPath, buildPrBody(outcome.prMetadata, affirmationChecked))
 
       const prUrl = gh([
         'pr', 'create',
@@ -291,8 +337,8 @@ async function main (): Promise<void> {
       `- Alert: \`${alert.ruleId}\` #${alertNumber}`,
       `- Target: \`${alert.path}\``,
       '',
-      'Refusal is terminal: retry-with-feedback exists but is disabled, so a second attempt ' +
-      'cannot quietly succeed and conceal that this one was refused. A human should remove ' +
+      'Refusal is terminal: a second attempt is never made automatically, so it cannot ' +
+      'quietly succeed and conceal that this one was refused. A human should remove ' +
       `\`${NOPATCH_LABEL}\` only after reading this reason.`
     ].join('\n')
 

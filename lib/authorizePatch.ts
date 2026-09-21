@@ -3,8 +3,9 @@
  * SPDX-License-Identifier: MIT
  */
 
-import { parsePatch } from 'diff'
 import yaml from 'js-yaml'
+
+import { addedLinesOf, touchedPathsOf } from './diffFacts'
 
 export type BaseRefReader = (path: string) => string | undefined
 
@@ -20,7 +21,7 @@ export type AuthorizationResult =
   | { allowed: true }
   | { allowed: false, reason: RefusalReason }
 
-const OVERRIDE_FILE_PATH = '.taskflow/allowlist.yml'
+const OVERRIDE_FILE_PATH = '.security-triage/allowlist.yml'
 const SNIPPET_COUPLING_MARKER = 'vuln-code-snippet'
 const SOLVE_COUPLING_MARKER = 'challengeUtils.solve'
 const LINT_SUPPRESSION_MARKERS = ['eslint-disable']
@@ -34,39 +35,7 @@ function countOccurrences (content: string, marker: string): number {
   return content.split(marker).length - 1
 }
 
-function normalizePatchPath (fileName: string | undefined): string | undefined {
-  if (fileName === undefined || fileName === '/dev/null') {
-    return undefined
-  }
-  return fileName.replace(/^[ab]\//, '')
-}
-
-function touchedPathsOf (diff: string): Set<string> {
-  const touched = new Set<string>()
-  for (const patch of parsePatch(diff)) {
-    const oldPath = normalizePatchPath(patch.oldFileName)
-    const newPath = normalizePatchPath(patch.newFileName)
-    if (oldPath !== undefined) touched.add(oldPath)
-    if (newPath !== undefined) touched.add(newPath)
-  }
-  return touched
-}
-
-function addedLinesOf (diff: string): string[] {
-  const added: string[] = []
-  for (const patch of parsePatch(diff)) {
-    for (const hunk of patch.hunks) {
-      for (const line of hunk.lines) {
-        if (line.startsWith('+') && !line.startsWith('+++')) {
-          added.push(line.slice(1))
-        }
-      }
-    }
-  }
-  return added
-}
-
-function overrideAllowedPaths (readBaseRef: BaseRefReader): Set<string> {
+function overrideAllowedPaths (alertNumber: number, readBaseRef: BaseRefReader): Set<string> {
   const allowed = new Set<string>()
   const raw = readBaseRef(OVERRIDE_FILE_PATH)
   if (raw === undefined) {
@@ -76,8 +45,8 @@ function overrideAllowedPaths (readBaseRef: BaseRefReader): Set<string> {
   if (!parsed) {
     return allowed
   }
-  for (const entry of Object.values(parsed)) {
-    for (const path of entry?.allow ?? []) {
+  for (const path of parsed[String(alertNumber)]?.allow ?? []) {
+    if (path !== OVERRIDE_FILE_PATH) {
       allowed.add(path)
     }
   }
@@ -103,13 +72,14 @@ export interface AllowList {
 
 /**
  * Computes the allow-list for `targetPath`: the alert's own path, granted unless the base-ref
- * copy of the file carries snippet or solve coupling, plus any paths granted by
- * `.taskflow/allowlist.yml` on the base ref (see docs/agents/security-triage.md#allow-list).
- * Shared by `authorizePatch` and the remediation brief (issue #7), so both read the same
- * allow-list rather than two independently maintained copies of this logic.
+ * copy of the file carries snippet or solve coupling, plus any paths granted by `alertNumber`'s
+ * own entry in `.security-triage/allowlist.yml` on the base ref (see
+ * docs/agents/security-triage.md#allow-list). An entry keyed by a different alert number grants
+ * nothing here. Shared by `authorizePatch` and the remediation brief (issue #7), so both read
+ * the same allow-list rather than two independently maintained copies of this logic.
  */
-export function computeAllowList (targetPath: string, readBaseRef: BaseRefReader): AllowList {
-  const overrideAllowed = overrideAllowedPaths(readBaseRef)
+export function computeAllowList (targetPath: string, alertNumber: number, readBaseRef: BaseRefReader): AllowList {
+  const overrideAllowed = overrideAllowedPaths(alertNumber, readBaseRef)
   const couplingReason = couplingReasonOf(targetPath, readBaseRef)
   const targetAllowed = couplingReason === undefined || overrideAllowed.has(targetPath)
 
@@ -127,7 +97,7 @@ export function computeAllowList (targetPath: string, readBaseRef: BaseRefReader
  * tree, so a patch cannot widen its own authorization (see
  * docs/adr/0002-authorization-inputs-read-from-base-ref.md).
  */
-export function authorizePatch (targetPath: string, diff: string, readBaseRef: BaseRefReader): AuthorizationResult {
+export function authorizePatch (targetPath: string, alertNumber: number, diff: string, readBaseRef: BaseRefReader): AuthorizationResult {
   const touchedPaths = touchedPathsOf(diff)
 
   if (touchedPaths.has(OVERRIDE_FILE_PATH)) {
@@ -143,7 +113,7 @@ export function authorizePatch (targetPath: string, diff: string, readBaseRef: B
     }
   }
 
-  const allowList = computeAllowList(targetPath, readBaseRef)
+  const allowList = computeAllowList(targetPath, alertNumber, readBaseRef)
   const allowedPaths = new Set(allowList.paths)
 
   for (const path of touchedPaths) {

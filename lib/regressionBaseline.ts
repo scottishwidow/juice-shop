@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: MIT
  */
 
-import { parsePatch } from 'diff'
+import { touchedPathsOf } from './diffFacts'
 
 // The fixed validation input from docs/agents/security-triage.md's "Baseline delivery"
 // section: the trusted regression the gate reads from the base ref and owns the application
@@ -23,26 +23,42 @@ export interface TestRunSummary {
   errored: boolean
 }
 
-const RESULT_LINE = /^[ \t]+(✔|✖)\s+(.+?)\s+\([\d.]+ms\)\s*$/gm
+const TAP_RESULT_LINE = /^[ \t]*(ok|not ok) \d+ - (.+)$/
+const TAP_TYPE_LINE = /^[ \t]*type: '(\w+)'$/
+const TAP_BLOCK_END = /^[ \t]*\.\.\.\s*$/
 
 /**
- * Parses `node --test` human-readable output into pass/fail test names. Only indented lines
- * are read as leaf test results; a suite's own aggregate line (unindented) is not a test.
- * `errored` is set when no leaf test result is found at all, which covers both a loader crash
- * and a missing test file: neither is valid baseline evidence
- * (docs/agents/security-triage.md, "Baseline delivery").
+ * Parses the TAP13 output of `node --test --test-reporter=tap`, Node's own structured test
+ * reporter, into pass/fail test names. Each result line (`ok`/`not ok`) is paired with the
+ * `type` field of its own YAML diagnostic block: only `type: 'test'` is a leaf result, so a
+ * suite's aggregate roll-up line (`type: 'suite'`) is never counted as one, regardless of how
+ * deeply it is nested. `errored` is set when no leaf test result is found at all, which covers
+ * a missing test file (empty output); a loader crash instead surfaces as a single failed leaf
+ * named after the crashing file, which already fails the exact-name and count checks below -
+ * neither is valid baseline evidence (docs/agents/security-triage.md, "Baseline delivery").
  */
 export function parseNodeTestOutput (raw: string): TestRunSummary {
+  const lines = raw.split(/\r?\n/)
   const passed: string[] = []
   const failed: string[] = []
 
-  for (const match of raw.matchAll(RESULT_LINE)) {
-    const [, symbol, name] = match
-    if (symbol === '✔') {
-      passed.push(name)
-    } else {
-      failed.push(name)
+  for (let i = 0; i < lines.length; i++) {
+    const result = TAP_RESULT_LINE.exec(lines[i])
+    if (result === null) continue
+    const [, status, name] = result
+
+    let type: string | undefined
+    for (let j = i + 1; j < lines.length; j++) {
+      if (TAP_BLOCK_END.test(lines[j]) || TAP_RESULT_LINE.test(lines[j])) break
+      const typeMatch = TAP_TYPE_LINE.exec(lines[j])
+      if (typeMatch !== null) {
+        type = typeMatch[1]
+        break
+      }
     }
+    if (type !== 'test') continue
+
+    (status === 'ok' ? passed : failed).push(name)
   }
 
   return { passed, failed, errored: passed.length === 0 && failed.length === 0 }
@@ -68,18 +84,6 @@ export function baselineMatchesExpectation (summary: TestRunSummary): boolean {
  */
 export function regressionFullyPasses (summary: TestRunSummary): boolean {
   return !summary.errored && summary.failed.length === 0 && summary.passed.length === 3
-}
-
-function touchedPathsOf (diff: string): Set<string> {
-  const touched = new Set<string>()
-  for (const patch of parsePatch(diff)) {
-    for (const fileName of [patch.oldFileName, patch.newFileName]) {
-      if (fileName !== undefined && fileName !== '/dev/null') {
-        touched.add(fileName.replace(/^[ab]\//, ''))
-      }
-    }
-  }
-  return touched
 }
 
 /**

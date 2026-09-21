@@ -9,71 +9,11 @@ import {
   buildRemediationBrief,
   extractCodeStyleRule,
   extractComplianceInstructions,
-  findCoveringTests,
-  parseVerdictComment,
-  type ParsedVerdict
+  findCoveringTests
 } from '../../lib/remediationBrief'
+import type { VerdictPayload } from '../../lib/verdictPayload'
 
 const BASE_COMMIT = '5bc7ce9292a2237e64771a8b2b71b3df730d0800'
-
-function verdictComment (overrides: Partial<Record<'verdict' | 'alert' | 'base' | 'rule' | 'path' | 'snippet' | 'solve' | 'testCode', string>> = {}): string {
-  const fields = {
-    verdict: 'exploitable',
-    alert: '6',
-    base: BASE_COMMIT,
-    rule: 'js/path-injection',
-    path: 'routes/keyServer.ts',
-    snippet: 'no',
-    solve: 'no',
-    testCode: 'no',
-    ...overrides
-  }
-  return [
-    `**Verdict: ${fields.verdict}**`,
-    '',
-    `- Alert: #${fields.alert}`,
-    `- Base: \`${fields.base}\``,
-    `- Rule: \`${fields.rule}\``,
-    `- Path: \`${fields.path}\``,
-    `- Snippet coupling: ${fields.snippet}`,
-    `- Solve coupling: ${fields.solve}`,
-    `- Test code: ${fields.testCode}`,
-    '',
-    'Some prose explanation follows.'
-  ].join('\n')
-}
-
-void describe('parseVerdictComment', () => {
-  void it('reads all structured fields from a well-formed verdict comment', () => {
-    const result = parseVerdictComment(verdictComment({ snippet: 'yes' }))
-
-    assert.deepEqual(result, {
-      alertNumber: 6,
-      baseCommit: BASE_COMMIT,
-      verdict: 'exploitable',
-      ruleId: 'js/path-injection',
-      path: 'routes/keyServer.ts',
-      snippetCoupled: true,
-      solveCoupled: false,
-      isTestCode: false
-    })
-  })
-
-  void it('returns undefined when a required field is missing', () => {
-    const malformed = 'Just some prose, no structured verdict here.'
-
-    assert.equal(parseVerdictComment(malformed), undefined)
-  })
-
-  void it('returns undefined when the alert number or base commit is absent', () => {
-    const withoutBinding = verdictComment()
-      .split('\n')
-      .filter(line => !line.startsWith('- Alert:') && !line.startsWith('- Base:'))
-      .join('\n')
-
-    assert.equal(parseVerdictComment(withoutBinding), undefined)
-  })
-})
 
 void describe('extractComplianceInstructions', () => {
   const doc = [
@@ -137,7 +77,7 @@ void describe('findCoveringTests', () => {
 })
 
 void describe('buildRemediationBrief', () => {
-  const verdict: ParsedVerdict = {
+  const verdict: VerdictPayload = {
     alertNumber: 6,
     baseCommit: BASE_COMMIT,
     ruleId: 'js/path-injection',

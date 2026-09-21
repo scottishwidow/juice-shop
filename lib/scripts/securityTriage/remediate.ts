@@ -17,15 +17,16 @@
 // a tracked file of the pinned base commit read through `createBaseRefReader` (ADR-0005).
 
 import { execFileSync } from 'node:child_process'
-import { readFileSync, readdirSync, mkdirSync, writeFileSync } from 'node:fs'
-import { join } from 'node:path'
 import process from 'node:process'
 
 import { computeAllowList, type BaseRefReader } from '../../authorizePatch'
 import { createBaseRefReader } from '../../baseRefReader'
+import { fetchIssueCommentsUnauthenticated } from '../../issueComments'
+import { readRemediationTests, writeRemediationArtifacts } from '../../remediationFiles'
 import { parseAlertNumber } from '../../parseAlertNumber'
-import { describeProposalRefusal, parseProposedPatch, PROPOSE_PATCH_TOOL_NAME, type ProposedPatch } from '../../proposedPatch'
-import { describeVerdictRefusal, selectTrustedVerdict, type IssueComment } from '../../trustedVerdict'
+import { parseProposedPatch, PROPOSE_PATCH_TOOL_NAME, type ProposedPatch } from '../../proposedPatch'
+import { RemediationRefusal, writeRemediationRefusal } from '../../remediationRefusal'
+import { selectTrustedVerdict } from '../../trustedVerdict'
 import {
   buildRemediationBrief,
   extractCodeStyleRule,
@@ -35,7 +36,6 @@ import {
 
 const ANTHROPIC_MODEL = 'claude-sonnet-5'
 const OUTPUT_DIR = 'patch-author-output'
-const TEST_DIRECTORIES = ['test/server', 'test/api']
 
 function requireEnv (name: string): string {
   const value = process.env[name]
@@ -61,53 +61,12 @@ function headCommit (): string {
   return head
 }
 
-function readTestFiles (): Record<string, string> {
-  const files: Record<string, string> = {}
-  for (const dir of TEST_DIRECTORIES) {
-    for (const entry of readTestFilesIn(dir)) {
-      files[entry] = readFileSync(entry, 'utf8')
-    }
-  }
-  return files
-}
-
-function readTestFilesIn (dir: string): string[] {
-  let entries: Array<{ name: string, isDirectory: () => boolean }>
-  try {
-    entries = readdirSync(dir, { withFileTypes: true })
-  } catch {
-    return []
-  }
-  const files: string[] = []
-  for (const entry of entries) {
-    const path = join(dir, entry.name)
-    if (entry.isDirectory()) {
-      files.push(...readTestFilesIn(path))
-    } else if (entry.name.endsWith('.test.ts')) {
-      files.push(path)
-    }
-  }
-  return files
-}
-
-async function fetchIssueComments (repo: string, issueNumber: string): Promise<IssueComment[]> {
-  // Unauthenticated read of a public issue's comments. This job declares no permissions, so
-  // no GitHub token is used here; public issue comments do not require one.
-  const response = await fetch(`https://api.github.com/repos/${repo}/issues/${issueNumber}/comments`, {
-    headers: { accept: 'application/vnd.github+json' }
-  })
-  if (!response.ok) {
-    throw new Error(`Reading issue comments failed: ${response.status} ${await response.text()}`)
-  }
-  const comments = await response.json() as unknown
-  return Array.isArray(comments) ? comments as IssueComment[] : []
-}
-
 async function proposePatch (brief: string): Promise<ProposedPatch> {
   const apiKey = requireEnv('ANTHROPIC_API_KEY')
 
   const response = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
+    redirect: 'error',
     headers: {
       'content-type': 'application/json',
       'x-api-key': apiKey,
@@ -149,7 +108,7 @@ async function proposePatch (brief: string): Promise<ProposedPatch> {
 
   const result = parseProposedPatch(await response.json())
   if (!result.valid) {
-    throw new Error(`Nothing was written: ${describeProposalRefusal(result.reason)}`)
+    throw new RemediationRefusal(result.reason, `Nothing was written: ${result.reason}`)
   }
   return result.patch
 }
@@ -158,39 +117,39 @@ function readRequiredPolicy (readBaseRef: BaseRefReader, path: string, extract: 
   const doc = readBaseRef(path)
   const extracted = doc !== undefined ? extract(doc) : undefined
   if (extracted === undefined) {
-    throw new Error(`Could not read ${description} from ${path} on the base ref.`)
+    throw new RemediationRefusal('required-policy-unreadable', `Could not read ${description} from ${path} on the base ref.`)
   }
   return extracted
 }
 
-async function main (): Promise<void> {
+async function run (): Promise<void> {
   const repo = requireEnv('GITHUB_REPOSITORY')
   const issueNumber = requireEnv('ISSUE_NUMBER')
   const issueBody = process.env.ISSUE_BODY ?? ''
 
   const alertNumber = parseAlertNumber(issueBody)
   if (alertNumber === undefined) {
-    throw new Error('Could not find an alert reference in this issue body (expected text such as `alert #6`).')
+    throw new RemediationRefusal('no-alert-reference', 'Could not find an alert reference in this issue body (expected text such as `alert #6`).')
   }
 
   const baseCommit = headCommit()
   const readBaseRef = createBaseRefReader(baseCommit, runGit)
 
-  const selection = selectTrustedVerdict(await fetchIssueComments(repo, issueNumber), { alertNumber, baseCommit })
+  const selection = selectTrustedVerdict(await fetchIssueCommentsUnauthenticated(repo, issueNumber), { alertNumber, baseCommit })
   if (!selection.selected) {
-    throw new Error(`No remediation target was selected (\`${selection.reason}\`): ${describeVerdictRefusal(selection.reason)}`)
+    throw new RemediationRefusal(selection.reason, `No remediation target was selected: ${selection.reason}`)
   }
   const verdict = selection.verdict
   if (verdict.isTestCode) {
-    throw new Error('The triaged finding is test code (not-applicable); remediation does not apply.')
+    throw new RemediationRefusal('test-code-not-applicable', 'The triaged finding is test code (not-applicable); remediation does not apply.')
   }
 
   const targetContent = readBaseRef(verdict.path)
   if (targetContent === undefined) {
-    throw new Error(`\`${verdict.path}\` is not a readable tracked file at base commit ${baseCommit}.`)
+    throw new RemediationRefusal('target-unreadable', `\`${verdict.path}\` is not a readable tracked file at base commit ${baseCommit}.`)
   }
 
-  const allowList = computeAllowList(verdict.path, readBaseRef)
+  const allowList = computeAllowList(verdict.path, alertNumber, readBaseRef)
   const codeStyleRule = readRequiredPolicy(readBaseRef, 'CONTRIBUTING.md', extractCodeStyleRule, 'the code style rule')
   const complianceInstructions = readRequiredPolicy(
     readBaseRef,
@@ -199,7 +158,7 @@ async function main (): Promise<void> {
     "the patch author's compliance row"
   )
 
-  const allTestFiles = readTestFiles()
+  const allTestFiles = readRemediationTests(baseCommit, runGit)
   const coveringTestPaths = findCoveringTests(verdict.path, allTestFiles)
   const coveringTests: Record<string, string> = {}
   for (const path of coveringTestPaths) {
@@ -225,12 +184,23 @@ async function main (): Promise<void> {
 
   const proposal = await proposePatch(brief)
 
-  mkdirSync(OUTPUT_DIR, { recursive: true })
-  writeFileSync(join(OUTPUT_DIR, 'brief.md'), brief)
-  writeFileSync(join(OUTPUT_DIR, 'proposed.patch'), proposal.diff)
-  writeFileSync(join(OUTPUT_DIR, 'summary.md'), proposal.summary)
+  writeRemediationArtifacts(OUTPUT_DIR, brief, proposal)
 
   console.log(`Wrote proposal for alert #${alertNumber} at base ${baseCommit} to ${OUTPUT_DIR}/`)
+}
+
+// Every refusal, categorized or not, is written to the artifact the credential-free job
+// already uploads: the gate job holds `issues: write` and reports it (issue #15). The job
+// still exits non-zero so a refusal stays visible in the Actions run itself.
+async function main (): Promise<void> {
+  try {
+    await run()
+  } catch (error) {
+    const reason = error instanceof RemediationRefusal ? error.reason : 'unexpected-error'
+    writeRemediationRefusal(OUTPUT_DIR, reason)
+    console.error(error)
+    process.exitCode = 1
+  }
 }
 
 main().catch((error: unknown) => {

@@ -3,14 +3,14 @@
  * SPDX-License-Identifier: MIT
  */
 
-import { parseVerdictComment, type ParsedVerdict } from './remediationBrief'
+import { decodeVerdictPayload, VERDICT_PAYLOAD_MARKER, type VerdictPayload } from './verdictPayload'
 
 // The only identity the `triage` job can post as: it comments through the workflow's
 // `GITHUB_TOKEN`. A verdict comment from any other account is a comment an outsider could
 // write, and selects nothing.
 const TRIAGE_AUTHOR_LOGIN = 'github-actions[bot]'
 
-export const VERDICT_MARKER = '**Verdict:'
+export { VERDICT_PAYLOAD_MARKER }
 
 export interface IssueComment {
   body?: unknown
@@ -30,7 +30,7 @@ export type VerdictRefusalReason =
   | 'base-commit-mismatch'
 
 export type VerdictSelection =
-  | { selected: true, verdict: ParsedVerdict }
+  | { selected: true, verdict: VerdictPayload }
   | { selected: false, reason: VerdictRefusalReason }
 
 const REFUSAL_DESCRIPTIONS: Record<VerdictRefusalReason, string> = {
@@ -56,7 +56,7 @@ export function describeVerdictRefusal (reason: VerdictRefusalReason): string {
  */
 export function selectTrustedVerdict (comments: IssueComment[], expected: ExpectedVerdict): VerdictSelection {
   const verdictComments = comments.filter(comment =>
-    typeof comment.body === 'string' && comment.body.includes(VERDICT_MARKER))
+    typeof comment.body === 'string' && comment.body.includes(VERDICT_PAYLOAD_MARKER))
   if (verdictComments.length === 0) {
     return { selected: false, reason: 'no-verdict-comment' }
   }
@@ -68,7 +68,7 @@ export function selectTrustedVerdict (comments: IssueComment[], expected: Expect
     return { selected: false, reason: 'untrusted-verdict-author' }
   }
 
-  const verdict = parseVerdictComment(latest.body as string)
+  const verdict = decodeVerdictPayload(latest.body as string)
   if (verdict === undefined) {
     return { selected: false, reason: 'malformed-verdict-comment' }
   }

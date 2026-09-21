@@ -9,9 +9,8 @@
 // from the code-scanning API, and decides the verdict mechanically via `determineVerdict`
 // against the checked-out base ref. The model call drafts only the prose explanation of a
 // verdict that is already decided; it receives no tools, so its only possible output is the
-// text of that paragraph. That is the narrowest reading of "the triage toolbox permits
-// comment creation only" (docs/agents/security-triage.md,
-// docs/adr/0004-triage-model-call-has-no-tools.md).
+// text of that paragraph. The job's write permission is comment creation only
+// (docs/agents/security-triage.md, docs/adr/0004-triage-model-call-has-no-tools.md).
 //
 // The workflow itself performs every write (the comment and the label swap), with the
 // `issues: write` permission the job holds; the model performs none.
@@ -22,6 +21,7 @@ import process from 'node:process'
 
 import { determineVerdict, type TriageResult } from '../../triageVerdict'
 import { parseAlertNumber } from '../../parseAlertNumber'
+import { encodeVerdictPayload } from '../../verdictPayload'
 
 const ANTHROPIC_MODEL = 'claude-sonnet-5'
 
@@ -115,12 +115,12 @@ function baseCommit (): string {
 
 // The alert number and base commit are part of the verdict, not context: the patch author
 // job binds its own alert and checkout to them before it reads any file (ADR-0005).
-function verdictSummary (alert: AlertDetail, alertNumber: number, result: TriageResult): string {
+function verdictSummary (alert: AlertDetail, alertNumber: number, base: string, result: TriageResult): string {
   return [
     `**Verdict: ${result.verdict}**`,
     '',
     `- Alert: #${alertNumber}`,
-    `- Base: \`${baseCommit()}\``,
+    `- Base: \`${base}\``,
     `- Rule: \`${alert.ruleId}\``,
     `- Path: \`${alert.path}\``,
     `- Snippet coupling: ${result.coupling.snippetCoupled ? 'yes' : 'no'}`,
@@ -148,8 +148,20 @@ async function main (): Promise<void> {
   const alert = fetchAlertDetail(repo, alertNumber)
   const result = determineVerdict(alert.path, readBaseRefFile)
   const reasoning = await draftReasoning(alert, result)
+  const base = baseCommit()
 
-  const comment = `${verdictSummary(alert, alertNumber, result)}\n\n${reasoning}`
+  const payload = encodeVerdictPayload({
+    alertNumber,
+    baseCommit: base,
+    ruleId: alert.ruleId,
+    path: alert.path,
+    verdict: result.verdict,
+    snippetCoupled: result.coupling.snippetCoupled,
+    solveCoupled: result.coupling.solveCoupled,
+    isTestCode: result.isTestCode
+  })
+
+  const comment = `${verdictSummary(alert, alertNumber, base, result)}\n\n${reasoning}\n\n${payload}`
   gh(['issue', 'comment', issueNumber, '--repo', repo, '--body', comment])
   gh([
     'issue', 'edit', issueNumber, '--repo', repo,

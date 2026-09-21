@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: MIT
  */
 
-import { parsePatch } from 'diff'
+import { addedLinesByPath } from './diffFacts'
 import type { CheckResult } from './gateChecks'
 
 // The one identity this automation is authorized to author and sign commits as: the
@@ -128,22 +128,17 @@ export function affirmationSatisfied (metadata: PrMetadata, allChecksPassed: boo
   return metadataIsComplete(metadata) && allChecksPassed && identityOk
 }
 
-function addedLinesByPath (diffText: string): Map<string, string[]> {
-  const result = new Map<string, string[]>()
-  for (const patch of parsePatch(diffText)) {
-    const fileName = patch.newFileName?.replace(/^[ab]\//, '')
-    if (fileName === undefined) continue
-    const added: string[] = []
-    for (const hunk of patch.hunks) {
-      for (const line of hunk.lines) {
-        if (line.startsWith('+') && !line.startsWith('+++')) {
-          added.push(line.slice(1))
-        }
-      }
+function mergeAddedLines (...diffs: string[]): Map<string, string[]> {
+  const merged = new Map<string, string[]>()
+  for (const diffText of diffs) {
+    for (const [path, lines] of addedLinesByPath(diffText)) {
+      merged.set(path, [...(merged.get(path) ?? []), ...lines])
     }
-    result.set(fileName, [...(result.get(fileName) ?? []), ...added].sort())
   }
-  return result
+  for (const [path, lines] of merged) {
+    merged.set(path, [...lines].sort())
+  }
+  return merged
 }
 
 function mapsEqual (a: Map<string, string[]>, b: Map<string, string[]>): boolean {
@@ -166,12 +161,5 @@ function mapsEqual (a: Map<string, string[]>, b: Map<string, string[]>): boolean
 export function finalDiffIsExactlyRegressionPlusProposal (
   finalDiff: string, regressionDiff: string, proposalDiff: string
 ): boolean {
-  const expected = new Map<string, string[]>()
-  for (const [path, lines] of addedLinesByPath(regressionDiff)) {
-    expected.set(path, [...(expected.get(path) ?? []), ...lines].sort())
-  }
-  for (const [path, lines] of addedLinesByPath(proposalDiff)) {
-    expected.set(path, [...(expected.get(path) ?? []), ...lines].sort())
-  }
-  return mapsEqual(addedLinesByPath(finalDiff), expected)
+  return mapsEqual(mergeAddedLines(finalDiff), mergeAddedLines(regressionDiff, proposalDiff))
 }
