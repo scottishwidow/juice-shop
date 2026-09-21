@@ -21,7 +21,7 @@ export type AuthorizationResult =
   | { allowed: true }
   | { allowed: false, reason: RefusalReason }
 
-const OVERRIDE_FILE_PATH = '.taskflow/allowlist.yml'
+const OVERRIDE_FILE_PATH = '.security-triage/allowlist.yml'
 const SNIPPET_COUPLING_MARKER = 'vuln-code-snippet'
 const SOLVE_COUPLING_MARKER = 'challengeUtils.solve'
 const LINT_SUPPRESSION_MARKERS = ['eslint-disable']
@@ -73,7 +73,7 @@ export interface AllowList {
 /**
  * Computes the allow-list for `targetPath`: the alert's own path, granted unless the base-ref
  * copy of the file carries snippet or solve coupling, plus any paths granted by `alertNumber`'s
- * own entry in `.taskflow/allowlist.yml` on the base ref (see
+ * own entry in `.security-triage/allowlist.yml` on the base ref (see
  * docs/agents/security-triage.md#allow-list). An entry keyed by a different alert number grants
  * nothing here. Shared by `authorizePatch` and the remediation brief (issue #7), so both read
  * the same allow-list rather than two independently maintained copies of this logic.

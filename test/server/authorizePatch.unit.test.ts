@@ -68,7 +68,7 @@ void describe('authorizePatch', () => {
   void it('allows a coupled target with an explicit override present for its own alert number', () => {
     const reader = readerWithFiles({
       [targetPath]: 'challengeUtils.solve(challenges.someChallenge)',
-      '.taskflow/allowlist.yml': [
+      '.security-triage/allowlist.yml': [
         `${alertNumber}:`,
         '  allow:',
         `    - ${targetPath}`
@@ -84,7 +84,7 @@ void describe('authorizePatch', () => {
     const otherAlertNumber = 999
     const reader = readerWithFiles({
       [targetPath]: 'challengeUtils.solve(challenges.someChallenge)',
-      '.taskflow/allowlist.yml': [
+      '.security-triage/allowlist.yml': [
         `${otherAlertNumber}:`,
         '  allow:',
         `    - ${targetPath}`,
@@ -124,7 +124,7 @@ void describe('authorizePatch', () => {
     const result = authorizePatch(
       targetPath,
       alertNumber,
-      diffTouchingTwoPaths(targetPath, '.taskflow/allowlist.yml'),
+      diffTouchingTwoPaths(targetPath, '.security-triage/allowlist.yml'),
       reader
     )
 
@@ -135,11 +135,11 @@ void describe('authorizePatch', () => {
     const readerAbsent = readerWithFiles({ [targetPath]: 'challengeUtils.solve(challenges.someChallenge)' })
     const readerEmpty = readerWithFiles({
       [targetPath]: 'challengeUtils.solve(challenges.someChallenge)',
-      '.taskflow/allowlist.yml': ''
+      '.security-triage/allowlist.yml': ''
     })
     const readerNoMatchingEntry = readerWithFiles({
       [targetPath]: 'challengeUtils.solve(challenges.someChallenge)',
-      '.taskflow/allowlist.yml': [
+      '.security-triage/allowlist.yml': [
         '999:',
         '  allow:',
         `    - ${targetPath}`
@@ -154,7 +154,7 @@ void describe('authorizePatch', () => {
   })
 
   void it('never includes the override file path itself in the computed allow-list, even when explicitly listed under the matching alert', () => {
-    const overridePath = '.taskflow/allowlist.yml'
+    const overridePath = '.security-triage/allowlist.yml'
     const reader = readerWithFiles({
       [targetPath]: 'export const serveKeyFiles = () => {}',
       [overridePath]: [

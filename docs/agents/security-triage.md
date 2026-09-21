@@ -5,8 +5,9 @@ defined in [routes/CONTEXT.md](../../routes/CONTEXT.md). Decisions are recorded 
 [docs/adr/0001](../adr/0001-mechanical-coupling-detection.md),
 [0002](../adr/0002-authorization-inputs-read-from-base-ref.md),
 [0003](../adr/0003-fork-contribution-bots-removed.md),
-[0004](../adr/0004-triage-model-call-has-no-tools.md) and
-[0005](../adr/0005-remediation-input-is-trusted-verdict-only.md).
+[0004](../adr/0004-triage-model-call-has-no-tools.md),
+[0005](../adr/0005-remediation-input-is-trusted-verdict-only.md) and
+[0006](../adr/0006-taskflow-runner-not-adopted.md).
 
 ## Stages
 
@@ -34,8 +35,8 @@ Triggered by `on: issues: types: [labeled]`.
 | `remediate` | `{}` | calls the model, writes a patch to an artifact |
 | `gate` | `contents: write`, `pull-requests: write` | applies and checks the patch, opens the pull request or records NOPATCH |
 
-`remediate` must check out with `persist-credentials: false`. The `triage` toolbox permits
-comment creation only.
+`remediate` must check out with `persist-credentials: false`. The `triage` job's write
+permission is comment creation only.
 
 ## Triage job
 
@@ -72,12 +73,12 @@ The gate computes the allow-list rather than reading a roster:
 2. Deny everything if that file has snippet coupling or solve coupling, measured on the base
    ref: `git show "$BASE_SHA:<path>" | grep -c 'vuln-code-snippet'` and the same for
    `challengeUtils.solve`.
-3. Apply overrides from `.taskflow/allowlist.yml` on the base ref, if that file exists, reading
+3. Apply overrides from `.security-triage/allowlist.yml` on the base ref, if that file exists, reading
    only the entry keyed by the alert's own number. An entry keyed under a different alert
    number grants no paths and authorizes no coupled target for this alert.
 
-`.taskflow/**` is never inside an allow-list, including the override file's own path even if
-listed under an `allow` key. The override file is created only when a fix needs a path the
+The override file's own path is never inside an allow-list, even if listed under an `allow`
+key. The override file is created only when a fix needs a path the
 default rule does not grant, or when a human has already committed a coupling change that
 authorizes patching a coupled file.
 
@@ -146,7 +147,7 @@ The job holds the workflow's write credentials (`contents: write`, `pull-request
 patch author cannot write to, so the proposed diff cannot influence its own validation. Like
 `triage`, it reads the target path from the code-scanning API keyed by the alert number
 parsed from the issue body, never from the issue body itself. Coupling markers and the
-`.taskflow/allowlist.yml` override are read from that same base ref by `authorizePatch`. It
+`.security-triage/allowlist.yml` override are read from that same base ref by `authorizePatch`. It
 reads the issue's comments in full, paging to the end, with its own token rather than
 spending the shared unauthenticated quota `remediate` must use (issue #16).
 
@@ -168,7 +169,7 @@ proposed diff cannot change the policy used to check itself.
 
 | Role | Required compliance instructions |
 | --- | --- |
-| Triage (#6) | Report the alert and coupling evidence. Do not claim checks passed or grant policy exceptions. Keep the model toolbox limited to comments. |
+| Triage (#6) | Report the alert and coupling evidence. Do not claim checks passed or grant policy exceptions. The model call declares no tools; only the workflow script writes the comment. |
 | Patch author (#7) | Receive applicable base-ref policy constraints with the scoped brief. Act only on the triage job's own verdict for the named alert and pinned base commit, and read only tracked files of that commit. Return only a diff within the allow-list. Do not change tests or policy, push, sign off for a person, or create or edit PRs. Hold no credentials. |
 | Gate (#8–#9) | Validate the proposal and required checks against the base ref, then prepare the commit and PR metadata. Make no model call. |
 

@@ -9,9 +9,8 @@
 // from the code-scanning API, and decides the verdict mechanically via `determineVerdict`
 // against the checked-out base ref. The model call drafts only the prose explanation of a
 // verdict that is already decided; it receives no tools, so its only possible output is the
-// text of that paragraph. That is the narrowest reading of "the triage toolbox permits
-// comment creation only" (docs/agents/security-triage.md,
-// docs/adr/0004-triage-model-call-has-no-tools.md).
+// text of that paragraph. The job's write permission is comment creation only
+// (docs/agents/security-triage.md, docs/adr/0004-triage-model-call-has-no-tools.md).
 //
 // The workflow itself performs every write (the comment and the label swap), with the
 // `issues: write` permission the job holds; the model performs none.
