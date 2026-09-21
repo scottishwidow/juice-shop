@@ -32,14 +32,6 @@ jobs:
             pckg-os: linux
             cpu-arch: arm64
             pckg-format: tgz
-          - runner: windows-latest
-            pckg-os: win32
-            cpu-arch: x64
-            pckg-format: zip
-          - runner: macos-latest
-            pckg-os: darwin
-            cpu-arch: arm64
-            pckg-format: zip
         node-version: [22, 24, 26]
       fail-fast: false
     steps:
