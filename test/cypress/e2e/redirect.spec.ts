@@ -10,6 +10,13 @@ describe('/redirect', () => {
 
   describe('challenge "redirectChallenge"', () => {
     it('should redirect to target URL if allowlisted URL is contained in it as parameter', () => {
+      cy.on('uncaught:exception', (err) => {
+        // owasp.org's own frontend throws this after we redirect there; unrelated to the redirect challenge itself
+        if (err.message.includes('Minified React error #418')) {
+          return false
+        }
+        return true
+      })
       cy.visit(
         '/redirect?to=https://owasp.org?trickIndexOf=https://github.com/juice-shop/juice-shop',
         {
