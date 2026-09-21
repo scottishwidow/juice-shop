@@ -84,10 +84,6 @@ The AI should suggest code following [JS Standard Style](http://standardjs.com/)
 
 ### 3. Testing Requirements
 
-For any code changes (unless only `REFERENCES.md` or `SOLUTIONS.md` were modified):
-- **Unit/Integration Tests**: New features and changes should have tests. For how to write them, keep coverage high, and close coverage gaps, see the [write-tests skill](./.ai/skills/write-tests/SKILL.md).
-- **E2E Tests**: Required for new/modified challenges (authoring guidance in the [write-tests skill](./.ai/skills/write-tests/SKILL.md)).
-- **RSN (Refactoring Safety Net)**: Required when modifying existing code that is part of a coding challenge (see the [verify-rsn-fix skill](./.ai/skills/verify-rsn-fix/SKILL.md) for details).
 - **Run Tests Locally**:
   ```bash
   npm test                    # Runs frontend, server, and api tests
