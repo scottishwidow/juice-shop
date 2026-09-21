@@ -104,10 +104,39 @@ table, both read from that same base ref, rather than duplicated by hand into th
 model's only tool is `propose_patch`; its diff is written to `patch-author-output/` and
 uploaded as a workflow artifact, never posted, committed, or pushed anywhere.
 
+## Gate job
+
+Implemented in `.github/workflows/security-triage.yml`'s `gate` job, running
+`lib/scripts/securityTriage/gate.ts`; the authorization entry point is the pure
+`decidePatchGate` in `lib/patchGate.ts`, which wraps `authorizePatch` (issue #5) with the
+compliance-policy precondition below. The workflow calls only `decidePatchGate`: it contains
+no authorization logic of its own.
+
+The job holds the workflow's write credentials (`contents: write`, `pull-requests: write`,
+`issues: write`) and makes no model call. It checks out the base ref fresh, a checkout the
+patch author cannot write to, so the proposed diff cannot influence its own validation. Like
+`triage`, it reads the target path from the code-scanning API keyed by the alert number
+parsed from the issue body, never from the issue body itself. Coupling markers and the
+`.taskflow/allowlist.yml` override are read from that same base ref by `authorizePatch`.
+
+Before delegating to `authorizePatch`, `decidePatchGate` requires `CONTRIBUTING.md`,
+`.github/PULL_REQUEST_TEMPLATE.md` and this document to be readable from the base ref. A
+missing or unreadable policy file is refused explicitly (`compliance-policy-unavailable`)
+rather than silently falling back to the patched tree; this precondition establishes that
+the trusted policy #9's full compliance check depends on is actually present, without #8
+implementing that check itself.
+
+Issue #8 implements only the refusal path. On refusal, the gate posts the reason as a
+comment on the originating issue and applies `sec:nopatch` (see [Refusal](#refusal) below).
+On an authorized diff, the job stops and logs that the allow path is not yet wired: applying
+the diff, running the gate checks, and opening a pull request are issue #9.
+
 ## PR compliance contract
 
-This contract applies to the briefs and gate planned in issues #6–#9. Those jobs are not
-implemented yet. Removing the contribution bots does not waive contribution policy.
+This contract applies to the briefs and gate delivered across issues #6–#9. Triage (#6), the
+patch author (#7), and the gate's refusal path (#8) are implemented; the gate's checks and
+pull request creation (#9) are not yet. Removing the contribution bots does not waive
+contribution policy.
 
 The gate reads `CONTRIBUTING.md`, `.github/PULL_REQUEST_TEMPLATE.md`, and
 `docs/agents/issue-tracker.md` from the same trusted base commit used for authorization.
@@ -149,8 +178,10 @@ patch author credentials.
 ## Refusal
 
 NOPATCH is terminal. The gate comments the reason and applies `sec:nopatch`; a human removes
-the label after reading it. Feeding a rejection back for a second attempt is implemented but
-disabled, because a retry that succeeds on the second attempt hides the refusal.
+the label after reading it. Feeding a rejection back for a second attempt is implemented as
+`buildRetryFeedback` in `lib/patchGate.ts`, guarded by `RETRY_WITH_FEEDBACK_ENABLED = false`,
+but disabled and never called by `gate.ts`: a retry that succeeds on the second attempt would
+hide that the first was refused.
 
 ## Remediation target
 
