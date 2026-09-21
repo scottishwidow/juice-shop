@@ -22,6 +22,7 @@ import process from 'node:process'
 
 import { determineVerdict, type TriageResult } from '../../triageVerdict'
 import { parseAlertNumber } from '../../parseAlertNumber'
+import { encodeVerdictPayload } from '../../verdictPayload'
 
 const ANTHROPIC_MODEL = 'claude-sonnet-5'
 
@@ -115,12 +116,12 @@ function baseCommit (): string {
 
 // The alert number and base commit are part of the verdict, not context: the patch author
 // job binds its own alert and checkout to them before it reads any file (ADR-0005).
-function verdictSummary (alert: AlertDetail, alertNumber: number, result: TriageResult): string {
+function verdictSummary (alert: AlertDetail, alertNumber: number, base: string, result: TriageResult): string {
   return [
     `**Verdict: ${result.verdict}**`,
     '',
     `- Alert: #${alertNumber}`,
-    `- Base: \`${baseCommit()}\``,
+    `- Base: \`${base}\``,
     `- Rule: \`${alert.ruleId}\``,
     `- Path: \`${alert.path}\``,
     `- Snippet coupling: ${result.coupling.snippetCoupled ? 'yes' : 'no'}`,
@@ -148,8 +149,20 @@ async function main (): Promise<void> {
   const alert = fetchAlertDetail(repo, alertNumber)
   const result = determineVerdict(alert.path, readBaseRefFile)
   const reasoning = await draftReasoning(alert, result)
+  const base = baseCommit()
 
-  const comment = `${verdictSummary(alert, alertNumber, result)}\n\n${reasoning}`
+  const payload = encodeVerdictPayload({
+    alertNumber,
+    baseCommit: base,
+    ruleId: alert.ruleId,
+    path: alert.path,
+    verdict: result.verdict,
+    snippetCoupled: result.coupling.snippetCoupled,
+    solveCoupled: result.coupling.solveCoupled,
+    isTestCode: result.isTestCode
+  })
+
+  const comment = `${verdictSummary(alert, alertNumber, base, result)}\n\n${reasoning}\n\n${payload}`
   gh(['issue', 'comment', issueNumber, '--repo', repo, '--body', comment])
   gh([
     'issue', 'edit', issueNumber, '--repo', repo,

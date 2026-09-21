@@ -12,7 +12,8 @@ import {
   fetchIssueCommentsUnauthenticated,
   type FetchImpl
 } from '../../lib/issueComments'
-import { selectTrustedVerdict, VERDICT_MARKER } from '../../lib/trustedVerdict'
+import { selectTrustedVerdict } from '../../lib/trustedVerdict'
+import { encodeVerdictPayload } from '../../lib/verdictPayload'
 
 function jsonResponse (body: unknown, linkHeader?: string): Awaited<ReturnType<FetchImpl>> {
   return {
@@ -51,15 +52,18 @@ void describe('fetchAllIssueComments', () => {
 
   void it('finds a verdict comment that only appears on a page past the first', async () => {
     const verdictBody = [
-      `${VERDICT_MARKER} exploitable**`,
+      '**Verdict: exploitable**',
       '',
-      '- Alert: #6',
-      '- Base: `5bc7ce9292a2237e64771a8b2b71b3df730d0800`',
-      '- Rule: `js/path-injection`',
-      '- Path: `routes/keyServer.ts`',
-      '- Snippet coupling: no',
-      '- Solve coupling: no',
-      '- Test code: no'
+      encodeVerdictPayload({
+        alertNumber: 6,
+        baseCommit: '5bc7ce9292a2237e64771a8b2b71b3df730d0800',
+        ruleId: 'js/path-injection',
+        path: 'routes/keyServer.ts',
+        verdict: 'exploitable',
+        snippetCoupled: false,
+        solveCoupled: false,
+        isTestCode: false
+      })
     ].join('\n')
 
     const firstPage = Array.from({ length: 30 }, (_, i) => ({ body: `noise ${i}`, user: { login: 'someone', type: 'User' } }))

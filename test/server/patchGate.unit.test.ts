@@ -17,6 +17,7 @@ import { GATE_COMMIT_IDENTITY, type CommitRecord } from '../../lib/prCompliance'
 import type { CheckResult } from '../../lib/gateChecks'
 import type { TestRunSummary } from '../../lib/regressionBaseline'
 import type { IssueComment } from '../../lib/trustedVerdict'
+import { encodeVerdictPayload } from '../../lib/verdictPayload'
 
 function diffModifying (path: string, addedLines: string[]): string {
   const hunkBody = addedLines.map(line => `+${line}`).join('\n')
@@ -76,13 +77,18 @@ function verdictComment (): IssueComment {
   const body = [
     '**Verdict: exploitable**',
     '',
-    '- Alert: #6',
-    `- Base: \`${BASE_COMMIT}\``,
-    '- Rule: `js/path-injection`',
-    `- Path: \`${TARGET_PATH}\``,
-    '- Snippet coupling: no',
-    '- Solve coupling: no',
-    '- Test code: no'
+    'This finding is exploitable and neither coupling mechanism applies.',
+    '',
+    encodeVerdictPayload({
+      alertNumber: 6,
+      baseCommit: BASE_COMMIT,
+      ruleId: 'js/path-injection',
+      path: TARGET_PATH,
+      verdict: 'exploitable',
+      snippetCoupled: false,
+      solveCoupled: false,
+      isTestCode: false
+    })
   ].join('\n')
   return { body, user: { login: 'github-actions[bot]', type: 'Bot' } }
 }
@@ -172,12 +178,6 @@ void describe('decideGateOutcome', () => {
     }))
 
     assert.deepEqual(outcome, { allowed: false, reason: 'untrusted-verdict-author' })
-  })
-
-  void it('refuses with verdict-target-mismatch when the trusted verdict names a different rule than the scanner API', () => {
-    const outcome = decideGateOutcome(validInput({ alert: { ruleId: 'js/different-rule', path: TARGET_PATH } }))
-
-    assert.deepEqual(outcome, { allowed: false, reason: 'verdict-target-mismatch' })
   })
 
   void it('delegates a path-authorization refusal to authorizePatch unchanged', () => {
@@ -297,7 +297,6 @@ void describe('describeOutcomeRefusal', () => {
       'malformed-verdict-comment',
       'alert-number-mismatch',
       'base-commit-mismatch',
-      'verdict-target-mismatch',
       'compliance-destination-unconfigured',
       'regression-artifact-unavailable',
       'regression-apply-failed',

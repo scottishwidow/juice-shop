@@ -48,9 +48,14 @@ is trusted from the issue: the path and rule are fetched from the code-scanning 
 that number, so editing the issue body cannot redirect triage at a different file (issue #2,
 user story 13).
 
-The verdict comment states the alert number and the base commit it was decided against, as
-well as the rule, path and both coupling findings. Those two fields are what the `remediate`
-job binds itself to before it reads anything ([ADR-0005](../adr/0005-remediation-input-is-trusted-verdict-only.md)).
+The verdict comment carries two independent representations of the same decision: prose for a
+maintainer to read, and a structured JSON payload (`lib/verdictPayload.ts`) inside an HTML
+comment for the `remediate` and `gate` jobs to read. The payload states the alert number and
+the base commit it was decided against, as well as the rule, path and both coupling findings.
+Those two fields are what `remediate` and `gate` bind themselves to before they read anything
+([ADR-0005](../adr/0005-remediation-input-is-trusted-verdict-only.md)). Reformatting the prose
+paragraph does not affect the payload; a maintainer editing the comment for readability cannot
+break the handoff.
 
 The verdict is decided mechanically by `lib/triageVerdict.ts` against the checked-out base
 ref (`master`), before the model runs. The model call carries no tools and drafts only the

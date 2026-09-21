@@ -7,23 +7,30 @@ import { describe, it } from 'node:test'
 import assert from 'node:assert/strict'
 
 import { selectTrustedVerdict, type IssueComment } from '../../lib/trustedVerdict'
+import { encodeVerdictPayload, type VerdictPayload } from '../../lib/verdictPayload'
 
 const BASE_COMMIT = '5bc7ce9292a2237e64771a8b2b71b3df730d0800'
 const OTHER_COMMIT = '0000000000000000000000000000000000000000'
 const EXPECTED = { alertNumber: 6, baseCommit: BASE_COMMIT }
 
-function verdictBody (overrides: Partial<Record<'alert' | 'base' | 'path', string>> = {}): string {
-  const fields = { alert: '6', base: BASE_COMMIT, path: 'routes/keyServer.ts', ...overrides }
+function verdictBody (overrides: Partial<VerdictPayload> = {}): string {
+  const payload: VerdictPayload = {
+    alertNumber: 6,
+    baseCommit: BASE_COMMIT,
+    ruleId: 'js/path-injection',
+    path: 'routes/keyServer.ts',
+    verdict: 'exploitable',
+    snippetCoupled: false,
+    solveCoupled: false,
+    isTestCode: false,
+    ...overrides
+  }
   return [
     '**Verdict: exploitable**',
     '',
-    `- Alert: #${fields.alert}`,
-    `- Base: \`${fields.base}\``,
-    '- Rule: `js/path-injection`',
-    `- Path: \`${fields.path}\``,
-    '- Snippet coupling: no',
-    '- Solve coupling: no',
-    '- Test code: no'
+    '- This prose is for a maintainer to read; the payload below is what the workflow reads.',
+    '',
+    encodeVerdictPayload(payload)
   ].join('\n')
 }
 
@@ -38,6 +45,30 @@ function fromOutsider (body: string): IssueComment {
 void describe('selectTrustedVerdict', () => {
   void it('selects the triage job\'s verdict for the expected alert and base commit', () => {
     const selection = selectTrustedVerdict([fromTriage(verdictBody())], EXPECTED)
+
+    assert.equal(selection.selected, true)
+    assert.equal(selection.selected && selection.verdict.path, 'routes/keyServer.ts')
+  })
+
+  void it('is unaffected by reformatting the maintainer-facing prose paragraph', () => {
+    const reformatted = [
+      'Reworded for readability: this finding is exploitable and needs attention.',
+      '',
+      '  * a bullet with completely different wording and layout',
+      '',
+      encodeVerdictPayload({
+        alertNumber: 6,
+        baseCommit: BASE_COMMIT,
+        ruleId: 'js/path-injection',
+        path: 'routes/keyServer.ts',
+        verdict: 'exploitable',
+        snippetCoupled: false,
+        solveCoupled: false,
+        isTestCode: false
+      })
+    ].join('\n')
+
+    const selection = selectTrustedVerdict([fromTriage(reformatted)], EXPECTED)
 
     assert.equal(selection.selected, true)
     assert.equal(selection.selected && selection.verdict.path, 'routes/keyServer.ts')
@@ -65,13 +96,13 @@ void describe('selectTrustedVerdict', () => {
   })
 
   void it('refuses a trusted verdict for a different alert', () => {
-    const selection = selectTrustedVerdict([fromTriage(verdictBody({ alert: '7' }))], EXPECTED)
+    const selection = selectTrustedVerdict([fromTriage(verdictBody({ alertNumber: 7 }))], EXPECTED)
 
     assert.deepEqual(selection, { selected: false, reason: 'alert-number-mismatch' })
   })
 
   void it('refuses a trusted verdict decided against a different base commit', () => {
-    const selection = selectTrustedVerdict([fromTriage(verdictBody({ base: OTHER_COMMIT }))], EXPECTED)
+    const selection = selectTrustedVerdict([fromTriage(verdictBody({ baseCommit: OTHER_COMMIT }))], EXPECTED)
 
     assert.deepEqual(selection, { selected: false, reason: 'base-commit-mismatch' })
   })
@@ -83,7 +114,9 @@ void describe('selectTrustedVerdict', () => {
   })
 
   void it('refuses a trusted comment that is not in the structured format', () => {
-    const selection = selectTrustedVerdict([fromTriage('**Verdict: exploitable** and nothing else')], EXPECTED)
+    const selection = selectTrustedVerdict([
+      fromTriage('**Verdict: exploitable** and nothing else, but claims a payload:\n<!-- security-triage:verdict-payload\n{"broken"\n-->')
+    ], EXPECTED)
 
     assert.deepEqual(selection, { selected: false, reason: 'malformed-verdict-comment' })
   })

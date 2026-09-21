@@ -47,7 +47,6 @@ export function describeGateRefusal (reason: GateRefusalReason): string {
 export type OutcomeRefusalReason =
   | GateRefusalReason
   | VerdictRefusalReason
-  | 'verdict-target-mismatch'
   | DestinationRefusalReason
   | BaselineRefusalReason
   | 'diff-widens-authorized-scope'
@@ -95,16 +94,18 @@ export function decideGateOutcome (input: GateOutcomeInput): GateOutcome {
     return { allowed: false, reason: 'compliance-destination-unconfigured' }
   }
 
+  // Only the alert number and base commit this verdict is bound to do any work here: the rule
+  // and path it also carries are for the credential-free `remediate` job, which cannot call
+  // the scanner API itself. The gate holds that credential and already fetched the
+  // authoritative alert (`input.alert`) by the same alert number, so cross-checking the
+  // verdict's own rule and path against it would only recompute what selecting this verdict by
+  // alert number already established, and use it nowhere afterward (issue #19).
   const verdictSelection = selectTrustedVerdict(input.comments, {
     alertNumber: input.alertNumber,
     baseCommit: input.baseCommit
   })
   if (!verdictSelection.selected) {
     return { allowed: false, reason: verdictSelection.reason }
-  }
-  const verdict = verdictSelection.verdict
-  if (verdict.path !== input.alert.path || verdict.ruleId !== input.alert.ruleId) {
-    return { allowed: false, reason: 'verdict-target-mismatch' }
   }
 
   const authorization = authorizePatch(input.alert.path, input.alertNumber, input.proposedDiff, input.readBaseRef)
@@ -159,7 +160,6 @@ const OUTCOME_REFUSAL_DESCRIPTIONS: Record<OutcomeRefusalReason, string> = {
   'malformed-verdict-comment': describeVerdictRefusal('malformed-verdict-comment'),
   'alert-number-mismatch': describeVerdictRefusal('alert-number-mismatch'),
   'base-commit-mismatch': describeVerdictRefusal('base-commit-mismatch'),
-  'verdict-target-mismatch': 'The trusted verdict names a different rule or path than the code-scanning API returned for this alert.',
   'compliance-destination-unconfigured': 'This repository is not one of the known PR destinations (scottishwidow/juice-shop -> master, juice-shop/juice-shop -> develop).',
   'regression-artifact-unavailable': 'The trusted regression artifact for this alert could not be read from the base ref, or adds a path other than the fixed regression test.',
   'regression-apply-failed': 'The trusted regression could not be applied to the unmodified base ref.',
