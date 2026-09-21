@@ -160,7 +160,7 @@ async function main (): Promise<void> {
     throw new Error(`\`${verdict.path}\` is not a readable tracked file at base commit ${baseCommit}.`)
   }
 
-  const allowList = computeAllowList(verdict.path, readBaseRef)
+  const allowList = computeAllowList(verdict.path, alertNumber, readBaseRef)
   const codeStyleRule = readRequiredPolicy(readBaseRef, 'CONTRIBUTING.md', extractCodeStyleRule, 'the code style rule')
   const complianceInstructions = readRequiredPolicy(
     readBaseRef,

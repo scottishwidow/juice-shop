@@ -49,11 +49,11 @@ function policyIsReadable (readBaseRef: BaseRefReader): boolean {
  * trusted contribution policy cannot be read from the base ref, rather than silently
  * proceeding against the patched tree; otherwise it delegates entirely to `authorizePatch`.
  */
-export function decidePatchGate (targetPath: string, diff: string, readBaseRef: BaseRefReader): GateDecision {
+export function decidePatchGate (targetPath: string, alertNumber: number, diff: string, readBaseRef: BaseRefReader): GateDecision {
   if (!policyIsReadable(readBaseRef)) {
     return { allowed: false, reason: 'compliance-policy-unavailable' }
   }
-  return authorizePatch(targetPath, diff, readBaseRef)
+  return authorizePatch(targetPath, alertNumber, diff, readBaseRef)
 }
 
 const REFUSAL_DESCRIPTIONS: Record<GateRefusalReason, string> = {
@@ -159,7 +159,7 @@ export function decideGateOutcome (input: GateOutcomeInput): GateOutcome {
     return { allowed: false, reason: 'verdict-target-mismatch' }
   }
 
-  const authorization = decidePatchGate(input.alert.path, input.proposedDiff, input.readBaseRef)
+  const authorization = decidePatchGate(input.alert.path, input.alertNumber, input.proposedDiff, input.readBaseRef)
   if (!authorization.allowed) {
     return authorization
   }

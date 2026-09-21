@@ -185,7 +185,7 @@ async function main (): Promise<void> {
       checkResults.push(regressionRun.result)
       baselinePost = regressionRun.summary
 
-      const allowList = computeAllowList(alert.path, readBaseRef)
+      const allowList = computeAllowList(alert.path, alertNumber, readBaseRef)
       checkResults.push(runCommand('typecheck', 'npx', ['tsc', '--noEmit'], worktreeDir))
       checkResults.push(runCommand('lint', 'npx', ['eslint', ...allowList.paths], worktreeDir))
       checkResults.push(runCommand('test:server', 'npm', ['run', 'test:server'], worktreeDir))

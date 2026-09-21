@@ -67,11 +67,14 @@ The gate computes the allow-list rather than reading a roster:
 2. Deny everything if that file has snippet coupling or solve coupling, measured on the base
    ref: `git show "$BASE_SHA:<path>" | grep -c 'vuln-code-snippet'` and the same for
    `challengeUtils.solve`.
-3. Apply overrides from `.taskflow/allowlist.yml` on the base ref, if that file exists.
+3. Apply overrides from `.taskflow/allowlist.yml` on the base ref, if that file exists, reading
+   only the entry keyed by the alert's own number. An entry keyed under a different alert
+   number grants no paths and authorizes no coupled target for this alert.
 
-`.taskflow/**` is never inside an allow-list. The override file is created only when a fix
-needs a path the default rule does not grant, or when a human has already committed a
-coupling change that authorizes patching a coupled file.
+`.taskflow/**` is never inside an allow-list, including the override file's own path even if
+listed under an `allow` key. The override file is created only when a fix needs a path the
+default rule does not grant, or when a human has already committed a coupling change that
+authorizes patching a coupled file.
 
 Independent of the allow-list, the gate refuses any diff line that adds `eslint-disable`,
 `@ts-ignore` or `@ts-expect-error`.

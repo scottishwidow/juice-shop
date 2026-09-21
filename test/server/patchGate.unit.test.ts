@@ -44,12 +44,13 @@ function readerWithFiles (files: Record<string, string>): BaseRefReader {
 
 void describe('decidePatchGate', () => {
   const targetPath = 'routes/keyServer.ts'
+  const alertNumber = 6
   const diff = diffModifying(targetPath, ['const x = 1'])
 
   void it('allows an uncoupled target with a diff confined to its own path when policy is readable', () => {
     const reader = readerWithFiles({ ...POLICY_FILES, [targetPath]: 'export const serveKeyFiles = () => {}' })
 
-    const result = decidePatchGate(targetPath, diff, reader)
+    const result = decidePatchGate(targetPath, alertNumber, diff, reader)
 
     assert.deepEqual(result, { allowed: true })
   })
@@ -57,7 +58,7 @@ void describe('decidePatchGate', () => {
   void it('delegates a refusal to authorizePatch unchanged', () => {
     const reader = readerWithFiles({ ...POLICY_FILES, [targetPath]: 'challengeUtils.solve(challenges.someChallenge)' })
 
-    const result = decidePatchGate(targetPath, diff, reader)
+    const result = decidePatchGate(targetPath, alertNumber, diff, reader)
 
     assert.deepEqual(result, { allowed: false, reason: 'solve-coupled' })
   })
@@ -66,7 +67,7 @@ void describe('decidePatchGate', () => {
     const { 'CONTRIBUTING.md': _omit, ...rest } = POLICY_FILES
     const reader = readerWithFiles({ ...rest, [targetPath]: 'export const serveKeyFiles = () => {}' })
 
-    const result = decidePatchGate(targetPath, diff, reader)
+    const result = decidePatchGate(targetPath, alertNumber, diff, reader)
 
     assert.deepEqual(result, { allowed: false, reason: 'compliance-policy-unavailable' })
   })
@@ -75,7 +76,7 @@ void describe('decidePatchGate', () => {
     const { '.github/PULL_REQUEST_TEMPLATE.md': _omit, ...rest } = POLICY_FILES
     const reader = readerWithFiles({ ...rest, [targetPath]: 'export const serveKeyFiles = () => {}' })
 
-    const result = decidePatchGate(targetPath, diff, reader)
+    const result = decidePatchGate(targetPath, alertNumber, diff, reader)
 
     assert.deepEqual(result, { allowed: false, reason: 'compliance-policy-unavailable' })
   })
@@ -84,7 +85,7 @@ void describe('decidePatchGate', () => {
     const { 'docs/agents/issue-tracker.md': _omit, ...rest } = POLICY_FILES
     const reader = readerWithFiles({ ...rest, [targetPath]: 'export const serveKeyFiles = () => {}' })
 
-    const result = decidePatchGate(targetPath, diff, reader)
+    const result = decidePatchGate(targetPath, alertNumber, diff, reader)
 
     assert.deepEqual(result, { allowed: false, reason: 'compliance-policy-unavailable' })
   })
@@ -93,7 +94,7 @@ void describe('decidePatchGate', () => {
     const { 'CONTRIBUTING.md': _omit, ...rest } = POLICY_FILES
     const reader = readerWithFiles({ ...rest, [targetPath]: 'challengeUtils.solve(challenges.someChallenge)' })
 
-    const result = decidePatchGate(targetPath, diff, reader)
+    const result = decidePatchGate(targetPath, alertNumber, diff, reader)
 
     assert.deepEqual(result, { allowed: false, reason: 'compliance-policy-unavailable' })
   })
