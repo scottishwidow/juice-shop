@@ -6,11 +6,6 @@
 import { formatValidationSection } from './gateChecks'
 import type { PrMetadata } from './prCompliance'
 
-// The model that authors the proposed diff (lib/scripts/securityTriage/remediate.ts's
-// ANTHROPIC_MODEL). The gate itself makes no model call, so its own role is disclosed as
-// mechanical rather than AI-generated.
-const PATCH_AUTHOR_MODEL = 'claude-sonnet-5'
-
 export function buildPrTitle (metadata: PrMetadata): string {
   return `fix(security): remediate ${metadata.ruleId} at ${metadata.targetPath} (alert #${metadata.alertNumber})`
 }
@@ -56,5 +51,3 @@ export function buildPrBody (metadata: PrMetadata, affirmationChecked: boolean):
     `- [${affirmationChecked ? 'x' : ' '}] My code follows the [CONTRIBUTING.md](https://github.com/${metadata.destination.repo}/blob/${metadata.destination.base}/CONTRIBUTING.md) guidelines`
   ].join('\n')
 }
-
-export { PATCH_AUTHOR_MODEL }

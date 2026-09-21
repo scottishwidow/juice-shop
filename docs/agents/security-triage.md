@@ -133,9 +133,8 @@ uploaded as a workflow artifact, never posted, committed, or pushed anywhere.
 
 Implemented in `.github/workflows/security-triage.yml`'s `gate` job, running
 `lib/scripts/securityTriage/gate.ts`; the authorization entry point is the pure
-`decidePatchGate` in `lib/patchGate.ts`, which wraps `authorizePatch` (issue #5) with the
-compliance-policy precondition below. The workflow calls only `decidePatchGate`: it contains
-no authorization logic of its own.
+`authorizePatch` in `lib/authorizePatch.ts` (issue #5). `decideGateOutcome` in
+`lib/patchGate.ts` calls it directly and contains no authorization logic of its own.
 
 The job holds the workflow's write credentials (`contents: write`, `pull-requests: write`,
 `issues: write`) and makes no model call. It checks out the base ref fresh, a checkout the
@@ -146,35 +145,27 @@ parsed from the issue body, never from the issue body itself. Coupling markers a
 reads the issue's comments in full, paging to the end, with its own token rather than
 spending the shared unauthenticated quota `remediate` must use (issue #16).
 
-Before delegating to `authorizePatch`, `decidePatchGate` requires `CONTRIBUTING.md`,
-`.github/PULL_REQUEST_TEMPLATE.md` and this document to be readable from the base ref. A
-missing or unreadable policy file is refused explicitly (`compliance-policy-unavailable`)
-rather than silently falling back to the patched tree; this precondition establishes that
-the trusted policy #9's full compliance check depends on is actually present, without #8
-implementing that check itself.
-
-Issue #8 implements only the refusal path. On refusal, the gate posts the reason as a
-comment on the originating issue and applies `sec:nopatch` (see [Refusal](#refusal) below).
-On an authorized diff, the job stops and logs that the allow path is not yet wired: applying
-the diff, running the gate checks, and opening a pull request are issue #9.
+Issue #8 implements the refusal path; issue #9 implements the allow path: on an authorized
+diff, the gate applies the regression and proposal diffs to a validation worktree, runs the
+gate checks there, and - if `decideGateOutcome` allows it - applies the same diff to its live
+checkout, commits and pushes it under the gate's own identity, and opens the pull request.
+On refusal, the gate posts the reason as a comment on the originating issue and applies
+`sec:nopatch` (see [Refusal](#refusal) below).
 
 ## PR compliance contract
 
-This contract applies to the briefs and gate delivered across issues #6–#9. Triage (#6), the
-patch author (#7), and the gate's refusal path (#8) are implemented; the gate's checks and
-pull request creation (#9) are not yet. Removing the contribution bots does not waive
-contribution policy.
+This contract applies to the briefs and gate delivered across issues #6–#9. Removing the
+contribution bots does not waive contribution policy.
 
-The gate reads `CONTRIBUTING.md`, `.github/PULL_REQUEST_TEMPLATE.md`, and
-`docs/agents/issue-tracker.md` from the same trusted base commit used for authorization.
-The proposed diff cannot change the policy used to check itself. Missing or unreadable
-policy blocks PR creation.
+The patch author reads `CONTRIBUTING.md` and this document's compliance table from the same
+trusted base commit used for authorization, and follows them when drafting a proposal. The
+proposed diff cannot change the policy used to check itself.
 
 | Role | Required compliance instructions |
 | --- | --- |
 | Triage (#6) | Report the alert and coupling evidence. Do not claim checks passed or grant policy exceptions. Keep the model toolbox limited to comments. |
 | Patch author (#7) | Receive applicable base-ref policy constraints with the scoped brief. Act only on the triage job's own verdict for the named alert and pinned base commit, and read only tracked files of that commit. Return only a diff within the allow-list. Do not change tests or policy, push, sign off for a person, or create or edit PRs. Hold no credentials. |
-| Gate (#8–#9) | Read trusted policy, validate the proposal and required checks, then prepare the commit and PR metadata. Make no model call. |
+| Gate (#8–#9) | Validate the proposal and required checks against the base ref, then prepare the commit and PR metadata. Make no model call. |
 
 Before opening a remediation PR, the gate must verify:
 
@@ -192,23 +183,23 @@ Before opening a remediation PR, the gate must verify:
   must pass before merge; pending checks are not reported as passed.
 
 Missing compliance must stop PR creation with a distinguishable refusal, such as
-`compliance-policy-unavailable`, `compliance-identity-unauthorized`,
-`compliance-signoff-missing`, `compliance-metadata-incomplete`, or
-`compliance-validation-failed`. The refusal states the unmet requirement and follows the
-terminal NOPATCH path. The gate must not disable checks or weaken policy to proceed.
+`compliance-identity-unauthorized`, `compliance-signoff-missing`,
+`compliance-metadata-incomplete`, or `compliance-validation-failed`. The refusal states the
+unmet requirement and follows the terminal NOPATCH path. The gate must not disable checks or
+weaken policy to proceed.
 
 Gate tests must cover these refusals and a compliant proposal. They must also prove that a
-proposal cannot replace base-ref policy and that metadata reports failures accurately.
-These checks supplement `authorizePatch`; they do not widen its allow-list or give the
-patch author credentials.
+proposal cannot widen the published diff beyond the trusted regression plus the authorized
+proposal, checked against the tree the gate actually applied and is about to push, and that
+metadata reports failures accurately. These checks supplement `authorizePatch`; they do not
+widen its allow-list or give the patch author credentials.
 
 ## Refusal
 
 NOPATCH is terminal. The gate comments the reason and applies `sec:nopatch`; a human removes
-the label after reading it. Feeding a rejection back for a second attempt is implemented as
-`buildRetryFeedback` in `lib/patchGate.ts`, guarded by `RETRY_WITH_FEEDBACK_ENABLED = false`,
-but disabled and never called by `gate.ts`: a retry that succeeds on the second attempt would
-hide that the first was refused.
+the label after reading it. No mechanism feeds a rejection back for a second attempt: a retry
+that succeeded would hide that the first was refused, so re-running remediation after a
+refusal requires a human to remove `sec:nopatch` and reapply `sec:ready-for-remediation`.
 
 A patch-author refusal is reported the same way, even though `remediate` holds no credential
 to post it itself (issue #15). On any refusal - a rejected verdict selection, test-code, an

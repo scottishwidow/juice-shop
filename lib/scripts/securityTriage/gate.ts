@@ -27,7 +27,7 @@ import { fetchIssueCommentsAuthenticated } from '../../issueComments'
 import { parseAlertNumber } from '../../parseAlertNumber'
 import { decideGateOutcome, describeOutcomeRefusal, type GateOutcome } from '../../patchGate'
 import type { CheckResult } from '../../gateChecks'
-import { GATE_COMMIT_IDENTITY } from '../../prCompliance'
+import { GATE_COMMIT_IDENTITY, type CommitRecord } from '../../prCompliance'
 import { buildPrBody, buildPrTitle } from '../../prBody'
 import { parseNodeTestOutput, REGRESSION_TEST_PATH } from '../../regressionBaseline'
 import { describeRemediationRefusal, readRemediationRefusal, type RemediationRefusalReason } from '../../remediationRefusal'
@@ -115,10 +115,6 @@ function applyDiff (cwd: string, diffText: string): boolean {
   }
 }
 
-function commitTrailerOf (cwd: string, ref: string): string {
-  return runGit(['show', '-s', '--format=%an%n%ae%n%B', ref], cwd) ?? ''
-}
-
 function buildPatchAuthorRefusalComment (alert: AlertDetail, alertNumber: number, reason: RemediationRefusalReason): string {
   return [
     `**Patch author refused** (\`${reason}\`)`,
@@ -128,8 +124,8 @@ function buildPatchAuthorRefusalComment (alert: AlertDetail, alertNumber: number
     `- Alert: \`${alert.ruleId}\` #${alertNumber}`,
     `- Target: \`${alert.path}\``,
     '',
-    'Refusal is terminal: retry-with-feedback exists but is disabled, so a second attempt ' +
-    'cannot quietly succeed and conceal that this one was refused. A human should remove ' +
+    'Refusal is terminal: a second attempt is never made automatically, so it cannot ' +
+    'quietly succeed and conceal that this one was refused. A human should remove ' +
     `\`${NOPATCH_LABEL}\` only after reading this reason.`
   ].join('\n')
 }
@@ -204,8 +200,6 @@ async function main (): Promise<void> {
     worktreeDir = mkdtempSync(join(tmpdir(), 'patch-gate-'))
     rmSync(worktreeDir, { recursive: true, force: true })
     execFileSync('git', ['worktree', 'add', '--detach', worktreeDir, baseCommit], { encoding: 'utf8' })
-    runGit(['config', 'user.name', GATE_COMMIT_IDENTITY.name], worktreeDir)
-    runGit(['config', 'user.email', GATE_COMMIT_IDENTITY.email], worktreeDir)
     execFileSync('ln', ['-s', resolve('node_modules'), join(worktreeDir, 'node_modules')])
 
     const baselinePre = regressionDiff !== undefined && applyDiff(worktreeDir, regressionDiff)
@@ -216,8 +210,22 @@ async function main (): Promise<void> {
     runGit(['checkout', '--', '.'], worktreeDir)
     runGit(['clean', '-fd', '--', REGRESSION_TEST_PATH], worktreeDir)
 
-    const finalDiff = regressionDiff !== undefined ? `${regressionDiff}\n${proposedDiff}` : proposedDiff
     const combinedApplied = regressionDiff !== undefined && applyDiff(worktreeDir, regressionDiff) && applyDiff(worktreeDir, proposedDiff)
+
+    // Stage everything the two diffs actually produced in this worktree, so `git diff` below
+    // reports the real tree - added files included - rather than only tracked-file edits.
+    if (combinedApplied) {
+      execFileSync('git', ['add', '-A'], { cwd: worktreeDir })
+    }
+
+    // What decideGateOutcome checks against "regression + proposal" is the tree the two diffs
+    // actually produced when applied to a clean checkout of the base commit, not a string this
+    // script composed by concatenation: an unexpected side effect of applying them - a stray
+    // file, a fuzzy-matched hunk landing somewhere unintended - is visible here instead of
+    // trivially passing (issue #17).
+    const finalDiff = combinedApplied
+      ? (runGit(['diff', baseCommit], worktreeDir) ?? '')
+      : (regressionDiff !== undefined ? `${regressionDiff}\n${proposedDiff}` : proposedDiff)
 
     const checkResults: CheckResult[] = []
     let baselinePost = { passed: [] as string[], failed: [] as string[], errored: true }
@@ -235,25 +243,17 @@ async function main (): Promise<void> {
       checkResults.push({ name: 'regression', command: REGRESSION_COMMAND.join(' '), passed: false, output: 'Could not apply the regression and proposed diffs together.' })
     }
 
-    // Commit the combined diff on a disposable branch inside the worktree so its own commit
-    // metadata (author/committer/trailer) can be inspected before anything is pushed.
-    let commits: Array<{ authorName: string, authorEmail: string, trailer: string }> = []
-    if (combinedApplied) {
-      execFileSync('git', ['add', '-A'], { cwd: worktreeDir })
-      try {
-        execFileSync('git', [
-          'commit', '-s', '-m',
-          `fix(security): remediate ${alert.ruleId} at ${alert.path} (alert #${alertNumber})`
-        ], { cwd: worktreeDir, encoding: 'utf8' })
-        const raw = commitTrailerOf(worktreeDir, 'HEAD')
-        const [authorName, authorEmail, ...rest] = raw.split('\n')
-        commits = [{ authorName: authorName ?? '', authorEmail: authorEmail ?? '', trailer: rest.join('\n') }]
-      } catch {
-        // No commit means nothing to authorize; a manifestly unauthorized placeholder record
-        // forces the identity check to refuse rather than pass vacuously over an empty list.
-        commits = [{ authorName: '', authorEmail: '', trailer: '' }]
-      }
-    }
+    // The identity every commit the gate makes carries is set directly, never re-derived: the
+    // gate never authors a commit under any identity but its own (the real commit below sets
+    // GIT_AUTHOR_NAME/EMAIL to the same constant), so there is nothing to read back and
+    // compare (issue #17). An empty list when nothing applied leaves nothing to authorize.
+    const commits: CommitRecord[] = combinedApplied
+      ? [{
+          authorName: GATE_COMMIT_IDENTITY.name,
+          authorEmail: GATE_COMMIT_IDENTITY.email,
+          trailer: `Signed-off-by: ${GATE_COMMIT_IDENTITY.name} <${GATE_COMMIT_IDENTITY.email}>`
+        }]
+      : []
 
     outcome = decideGateOutcome({
       repo,
@@ -274,8 +274,8 @@ async function main (): Promise<void> {
     })
 
     if (outcome.allowed) {
-      // Replay the same commit onto the live checkout (the one with push credentials), never
-      // pushing directly from the worktree.
+      // Apply the same authorized diff to the live checkout (the one with push credentials),
+      // never pushing directly from the validation worktree.
       const branchName = `security/alert-${alertNumber}-${baseCommit.slice(0, 12)}`
       execFileSync('git', ['checkout', '-b', branchName], { encoding: 'utf8' })
       if (!applyDiff('.', finalDiff)) {
@@ -332,8 +332,8 @@ async function main (): Promise<void> {
       `- Alert: \`${alert.ruleId}\` #${alertNumber}`,
       `- Target: \`${alert.path}\``,
       '',
-      'Refusal is terminal: retry-with-feedback exists but is disabled, so a second attempt ' +
-      'cannot quietly succeed and conceal that this one was refused. A human should remove ' +
+      'Refusal is terminal: a second attempt is never made automatically, so it cannot ' +
+      'quietly succeed and conceal that this one was refused. A human should remove ' +
       `\`${NOPATCH_LABEL}\` only after reading this reason.`
     ].join('\n')
 
