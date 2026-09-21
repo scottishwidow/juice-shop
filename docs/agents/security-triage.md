@@ -77,3 +77,31 @@ reviewing at the end.
 NOPATCH is terminal. The gate comments the reason and applies `sec:nopatch`; a human removes
 the label after reading it. Feeding a rejection back for a second attempt is implemented but
 disabled, because a retry that succeeds on the second attempt hides the refusal.
+
+## Remediation target
+
+This section is working state, not a decision: the target may change if the scanner
+clearance experiment below fails.
+
+CodeQL alert #6, `js/path-injection`, `routes/keyServer.ts:14`, is the workflow's
+demonstration target.
+
+- Snippet coupling: `git show master:routes/keyServer.ts | grep -c vuln-code-snippet` → `0`.
+- Solve coupling: `git show master:routes/keyServer.ts | grep -c 'challengeUtils.solve'` →
+  `0`. (`routes/fileServer.ts`, by contrast, has 6 and is excluded.)
+- The default allow-list rule above therefore grants exactly `routes/keyServer.ts`.
+
+It is preferred over the other two uncoupled path-injection alerts (#7
+`routes/logfileServer.ts`, #8 `routes/quarantineServer.ts`) because it alone is covered by
+both an existing unit test asserting traversal is rejected rather than sanitized
+(`test/server/keyServer.unit.test.ts`) and an API test asserting the exact string
+`Error: File names cannot contain forward slashes!` (`test/api/file-serving.test.ts:157`).
+`logfileServer` is registered in `server.ts` as the `vuln-line` of
+`accessLogDisclosureChallenge`; `quarantineServer` as a `neutral-line` of
+`directoryListingChallenge`.
+
+The gate's regression test for this target:
+
+```
+node --test test/server/keyServerPathTraversal.unit.test.ts
+```
