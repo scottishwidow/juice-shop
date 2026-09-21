@@ -17,12 +17,11 @@
 // a tracked file of the pinned base commit read through `createBaseRefReader` (ADR-0005).
 
 import { execFileSync } from 'node:child_process'
-import { readFileSync, readdirSync, mkdirSync, writeFileSync } from 'node:fs'
-import { join } from 'node:path'
 import process from 'node:process'
 
 import { computeAllowList, type BaseRefReader } from '../../authorizePatch'
 import { createBaseRefReader } from '../../baseRefReader'
+import { readRemediationTests, writeRemediationArtifacts } from '../../remediationFiles'
 import { parseAlertNumber } from '../../parseAlertNumber'
 import { describeProposalRefusal, parseProposedPatch, PROPOSE_PATCH_TOOL_NAME, type ProposedPatch } from '../../proposedPatch'
 import { describeVerdictRefusal, selectTrustedVerdict, type IssueComment } from '../../trustedVerdict'
@@ -35,7 +34,6 @@ import {
 
 const ANTHROPIC_MODEL = 'claude-sonnet-5'
 const OUTPUT_DIR = 'patch-author-output'
-const TEST_DIRECTORIES = ['test/server', 'test/api']
 
 function requireEnv (name: string): string {
   const value = process.env[name]
@@ -61,35 +59,6 @@ function headCommit (): string {
   return head
 }
 
-function readTestFiles (): Record<string, string> {
-  const files: Record<string, string> = {}
-  for (const dir of TEST_DIRECTORIES) {
-    for (const entry of readTestFilesIn(dir)) {
-      files[entry] = readFileSync(entry, 'utf8')
-    }
-  }
-  return files
-}
-
-function readTestFilesIn (dir: string): string[] {
-  let entries: Array<{ name: string, isDirectory: () => boolean }>
-  try {
-    entries = readdirSync(dir, { withFileTypes: true })
-  } catch {
-    return []
-  }
-  const files: string[] = []
-  for (const entry of entries) {
-    const path = join(dir, entry.name)
-    if (entry.isDirectory()) {
-      files.push(...readTestFilesIn(path))
-    } else if (entry.name.endsWith('.test.ts')) {
-      files.push(path)
-    }
-  }
-  return files
-}
-
 async function fetchIssueComments (repo: string, issueNumber: string): Promise<IssueComment[]> {
   // Unauthenticated read of a public issue's comments. This job declares no permissions, so
   // no GitHub token is used here; public issue comments do not require one.
@@ -108,6 +77,7 @@ async function proposePatch (brief: string): Promise<ProposedPatch> {
 
   const response = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
+    redirect: 'error',
     headers: {
       'content-type': 'application/json',
       'x-api-key': apiKey,
@@ -199,7 +169,7 @@ async function main (): Promise<void> {
     "the patch author's compliance row"
   )
 
-  const allTestFiles = readTestFiles()
+  const allTestFiles = readRemediationTests(baseCommit, runGit)
   const coveringTestPaths = findCoveringTests(verdict.path, allTestFiles)
   const coveringTests: Record<string, string> = {}
   for (const path of coveringTestPaths) {
@@ -225,10 +195,7 @@ async function main (): Promise<void> {
 
   const proposal = await proposePatch(brief)
 
-  mkdirSync(OUTPUT_DIR, { recursive: true })
-  writeFileSync(join(OUTPUT_DIR, 'brief.md'), brief)
-  writeFileSync(join(OUTPUT_DIR, 'proposed.patch'), proposal.diff)
-  writeFileSync(join(OUTPUT_DIR, 'summary.md'), proposal.summary)
+  writeRemediationArtifacts(OUTPUT_DIR, brief, proposal)
 
   console.log(`Wrote proposal for alert #${alertNumber} at base ${baseCommit} to ${OUTPUT_DIR}/`)
 }
