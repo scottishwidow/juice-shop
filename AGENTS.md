@@ -1,6 +1,6 @@
 # AI Agent Guidelines for OWASP Juice Shop
 
-This document is the **primary authoritative source** of context for all AI assistants (Claude, GitHub Copilot, Codeium, Continue.dev, Junie, etc.) contributing to OWASP Juice Shop. It provides comprehensive guidelines to maintain code quality, security, and adherence to project standards.
+This document is the **primary authoritative source** of context for all AI assistants contributing to OWASP Juice Shop. It provides comprehensive guidelines to maintain code quality, security, and adherence to project standards.
 
 ## Project Overview
 
@@ -42,7 +42,7 @@ This document is the **primary authoritative source** of context for all AI assi
 
 ## Recommended Use Cases
 
-### ✅ Good Use Cases
+### Good Use Cases
 
 - **Code Analysis**: Understanding existing code structure and patterns
 - **Refactoring**: Improving code quality while maintaining functionality
@@ -50,7 +50,7 @@ This document is the **primary authoritative source** of context for all AI assi
 - **Bug Fixing**: Identifying and resolving issues
 - **Documentation**: Writing clear comments and documentation
 
-### ⚠️ Use with Caution
+### Use with Caution
 
 - **Challenge Development**: Consult with maintainers before creating new challenges.
 - **Security Vulnerabilities**: Ensure AI-suggested vulnerabilities are intentional and appropriate for the project.
@@ -142,29 +142,20 @@ Ask the AI to:
 
 ## Anti-Patterns to Avoid
 
-❌ **Don't**: Accept AI suggestions blindly without understanding them.
-✅ **Do**: Review and understand all AI-generated code.
+**Don't**: Accept AI suggestions blindly without understanding them.
+**Do**: Review and understand all AI-generated code.
 
-❌ **Don't**: Submit PRs with verbose AI-generated comments.
-✅ **Do**: Clean up and keep only meaningful comments.
+**Don't**: Submit PRs with verbose AI-generated comments.
+**Do**: Clean up and keep only meaningful comments.
 
-❌ **Don't**: Skip testing because AI "seems confident".
-✅ **Do**: Always run the full test suite.
+**Don't**: Skip testing because AI "seems confident".
+**Do**: Always run the full test suite.
 
-❌ **Don't**: Use AI for contribution farming or trivial changes.
-✅ **Do**: Make meaningful contributions that add value.
+**Don't**: Use AI for contribution farming or trivial changes.
+**Do**: Make meaningful contributions that add value.
 
-❌ **Don't**: Let AI modify translations directly.
-✅ **Do**: Use [Crowdin](https://crowdin.com/project/owasp-juice-shop) for translations.
-
-## Example: Implementing a Bug Fix
-
-1. **Analyze**: Ask the AI to analyze the issue.
-2. **Locate**: Locate the problematic code.
-3. **Implement**: Implement the fix with the AI's help.
-4. **Test**: Generate tests and run the suite.
-5. **RSN**: Run `npm run rsn` if the fix affects code used in a coding challenge.
-6. **Sign-off**: Clean up and commit with sign-off (`git commit -s`).
+**Don't**: Let AI modify translations directly.
+**Do**: Use [Crowdin](https://crowdin.com/project/owasp-juice-shop) for translations.
 
 ## Quality Checklist
 
@@ -193,38 +184,17 @@ npm run rsn
 - **IMPORTANT**: Utilize the [verify-rsn-fix skill](./.ai/skills/verify-rsn-fix/SKILL.md).
 - When refactoring source code that is part of a challenge snippet, manually apply the same changes to the corresponding codefix files in `data/static/codefixes/` to maintain consistency.
 
-## Getting Help
+## Agent skills
 
-- **Authoritative Guide**: [AGENTS.md](./AGENTS.md)
-- **Contribution Guidelines**: [CONTRIBUTING.md](./CONTRIBUTING.md)
-- **Project Documentation**: [pwning.owasp-juice.shop](https://pwning.owasp-juice.shop/)
-- **Community**: GitHub issues and discussions.
+### Issue tracker
 
-## Skills
+Issues live in GitHub Issues (scottishwidow/juice-shop), using the `gh` CLI. See `docs/agents/issue-tracker.md`.
 
-- [add-reference skill](./.ai/skills/add-reference/SKILL.md): Instructions for adding new blog posts, talks, or other references to `REFERENCES.md`
-- [add-solution skill](./.ai/skills/add-solution/SKILL.md): Instructions for adding new hacking guides, videos, or tools to `SOLUTIONS.md`
-- [create-m3-theme skill](./.ai/skills/create-m3-theme/SKILL.md): Instructions for creating new Angular Material M3 themes
-- [generate-release-notes skill](./.ai/skills/generate-release-notes/SKILL.md): Instructions for generating release notes.
-- [verify-challenge skill](./.ai/skills/verify-challenge/SKILL.md): Instructions for verifying new challenges fulfill all project requirements and metadata
-- [verify-rsn-fix skill](./.ai/skills/verify-rsn-fix/SKILL.md): Instructions for identifying and fixing broken RSN caused by code changes
-- [write-tests skill](./.ai/skills/write-tests/SKILL.md): Instructions for writing automated tests (frontend, server, API, Cypress E2E), keeping code coverage high, and closing coverage gaps found in `lcov.info` files
+### Triage labels
 
-## Verification of Agent Context
+Default five canonical labels (needs-triage, needs-info, ready-for-agent, ready-for-human, wontfix). See `docs/agents/triage-labels.md`.
 
-To verify that an AI agent (like GitHub Copilot or Claude) is correctly using this context, you can use the following test prompts:
+### Domain docs
 
-1. **Check Primary Guidelines**: "What are the security constraints for developing new challenges in this project? Refer to the primary agent guidelines."
-   - *Expected Result*: The agent should summarize constraints from the "Important Constraints" section of this file.
-2. **Check Skill Discovery**: "How do I fix a break in the Refactoring Safety Net (RSN)? Is there a skill for this?"
-   - *Expected Result*: The agent should point to the `verify-rsn-fix` skill located in `./.ai/skills/verify-rsn-fix/SKILL.md`.
-3. **Check Skill Content**: "Show me the checklist for verifying a new challenge."
-   - *Expected Result*: The agent should find and display the content from `./.ai/skills/verify-challenge/checklists/challenge-checklist.md`.
+Multi-context: root `CONTEXT-MAP.md` pointing at per-context `CONTEXT.md` files, each with its own `docs/adr/`. See `docs/agents/domain.md`.
 
-## Remember
-
-AI agents are productivity tools for enhancing development. You (or the person reviewing the PR) are responsible for the quality, correctness, and security of all contributions. Always review AI-generated code critically, test thoroughly, and follow the project's guidelines.
-
----
-
-**Last Updated**: April 2026
