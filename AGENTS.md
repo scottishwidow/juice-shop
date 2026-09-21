@@ -103,9 +103,10 @@ git commit -s -m "Your commit message"
 
 ### 5. Branch and PR Strategy
 
-- Work on `develop` branch-based feature branches.
+- For this fork, base feature branches and PRs on `master`. Upstream PRs target `develop`.
 - Keep PRs focused on a single scope.
 - Reference related issues in PR descriptions.
+- Before creating, updating, or reopening a PR, follow [PR compliance](docs/agents/issue-tracker.md#pr-compliance), including AI disclosure and verification of every commit's DCO sign-off.
 
 ## Development Workflow
 
@@ -178,7 +179,8 @@ Before submitting a PR:
 - [ ] RSN check passing (if modified code relevant for a coding challenge)
 - [ ] Manual testing completed
 - [ ] Commits are signed off
-- [ ] PR based on `develop` branch
+- [ ] PR targets the correct repository and base branch
+- [ ] PR compliance preflight completed
 - [ ] Single, focused scope
 - [ ] All CI checks passing
 
@@ -208,4 +210,3 @@ Default five canonical labels (needs-triage, needs-info, ready-for-agent, ready-
 ### Domain docs
 
 Multi-context: root `CONTEXT-MAP.md` pointing at per-context `CONTEXT.md` files, each with its own `docs/adr/`. See `docs/agents/domain.md`.
-

@@ -13,6 +13,35 @@ Issues and specs for this repo live as GitHub issues. Use the `gh` CLI for all o
 
 Infer the repo from `git remote -v`; `gh` does this automatically when run inside a clone.
 
+## PR compliance
+
+Before creating, updating, or reopening a PR:
+
+1. Confirm the destination repository and pass `--repo` explicitly. Use `master` as the
+   base for `scottishwidow/juice-shop`; use `develop` for upstream `juice-shop/juice-shop`.
+2. Read `CONTRIBUTING.md` and `.github/PULL_REQUEST_TEMPLATE.md`. Write a concrete
+   description, related issues, and the actual validation results. Remove template prompts.
+3. Complete AI Tool Disclosure. Select the AI-generated option when an agent contributed
+   code or text. Name the tools, known model versions, and key instructions; mark unknown
+   details as unknown instead of guessing.
+4. Check every commit in the PR, not just the latest one. Fetch the base and inspect
+   `git log --format='%h %an <%ae>%n%B' <base>..HEAD` for a valid `Signed-off-by:` trailer.
+   Use `git commit -s` for new commits. Correct missing sign-offs only with the contributor's
+   authorization; an AI co-author trailer is not a DCO sign-off. When rewriting a published
+   branch, preserve a backup and push with an explicit `--force-with-lease=<ref>:<old-sha>`.
+5. Run the required checks. Check Affirmation only when all requirements are met. Keep a
+   PR with failing checks in draft and name the blockers, including deliberate failing
+   regression tests. Never claim a failed or unrun check passed.
+6. Save the PR body to a file and use `gh pr create` or `gh pr edit` with `--body-file`.
+   Read back the remote body, base, commits, draft status, and checks to verify the result.
+
+If automation closes a PR, inspect the event history and workflow logs before reopening.
+`pull_request_target` uses the base-branch workflow, so deleting that workflow inside the
+PR does not stop it. This fork removes inherited contribution bots under
+[ADR-0003](../adr/0003-fork-contribution-bots-removed.md); keep the compliance bot disabled
+while its removal is pending. Disabling a bot does not satisfy the disclosure, DCO, or test
+requirements above. Preserve CI and CodeQL checks.
+
 ## Pull requests as a triage surface
 
 **PRs as a request surface: no.** _(Set to `yes` if this repo treats external PRs as feature requests; `/triage` reads this flag.)_

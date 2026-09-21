@@ -11,7 +11,7 @@
 
 The ten minimum requirements for code contributions are:
 
-1. All Pull Requests _must_ be based off the `develop` branch.
+1. PRs to this fork (`scottishwidow/juice-shop`) _must_ be based on `master`. PRs to upstream (`juice-shop/juice-shop`) _must_ be based on `develop`.
 2. The code _must_ be compliant with the configured ESLint rules based on the [JS Standard Code Style](http://standardjs.com).
 3. All PRs _should_ have a dedicated scope (e.g. not mixing code refactorings with delivering a new feature) and reasonable size.
 4. All new and changed code _should_ have a corresponding unit and/or integration test.
@@ -23,6 +23,14 @@ The ten minimum requirements for code contributions are:
 10. Particularly low-effort contributions (e.g. incomplete typo fixes in a single file, trivial text changes, code formatting) or any forms of potential "contribution farming" _must not_ be submitted as PRs. Doing so more than once _might_ be [considered spamming and handled accordingly](https://pwning.owasp-juice.shop/companion-guide/latest/part3/contribution.html#_handling_of_spam_prs).
 
 ### Contribution Guidelines
+
+Complete the PR template's AI Tool Disclosure and Affirmation sections. Disclose the
+tools, known model versions, and a summary of the instructions used. Check the affirmation
+only when the contribution meets these requirements; list any unresolved blockers.
+
+This fork removes the inherited contribution bots. AI disclosure, DCO sign-offs, and
+passing checks remain required. A draft PR may record an intentionally failing regression
+test, but it is not ready to merge until all required checks pass.
 
 You can find our detailed contribution guidelines over here:
 
