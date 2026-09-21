@@ -59,7 +59,7 @@ npx tsc --noEmit
 npx eslint <allow-listed paths>
 npm run test:server
 npm run test:api
-node --test <the target regression test>
+node --import ./test/server/helpers/test-env.mjs --import tsx --test --test-force-exit <the target regression test>
 ```
 
 `npm run rsn` and `npm run lint:config` are not run: the allow-list makes both unreachable.
@@ -71,6 +71,48 @@ The patch author receives the alert, the coupling verdict, the allow-list, the J
 Style rule, and the contract of the tests that already cover the target. It does not receive
 `CLAUDE.md`, which is written for an agent with the whole repository in scope and a human
 reviewing at the end.
+
+## PR compliance contract
+
+This contract applies to the briefs and gate planned in issues #6–#9. Those jobs are not
+implemented yet. Removing the contribution bots does not waive contribution policy.
+
+The gate reads `CONTRIBUTING.md`, `.github/PULL_REQUEST_TEMPLATE.md`, and
+`docs/agents/issue-tracker.md` from the same trusted base commit used for authorization.
+The proposed diff cannot change the policy used to check itself. Missing or unreadable
+policy blocks PR creation.
+
+| Role | Required compliance instructions |
+| --- | --- |
+| Triage (#6) | Report the alert and coupling evidence. Do not claim checks passed or grant policy exceptions. Keep the model toolbox limited to comments. |
+| Patch author (#7) | Receive applicable base-ref policy constraints with the scoped brief. Return only a diff within the allow-list. Do not change tests or policy, push, sign off for a person, or create or edit PRs. Hold no credentials. |
+| Gate (#8–#9) | Read trusted policy, validate the proposal and required checks, then prepare the commit and PR metadata. Make no model call. |
+
+Before opening a remediation PR, the gate must verify:
+
+- The destination is explicit: `master` for `scottishwidow/juice-shop`, or `develop` for
+  upstream `juice-shop/juice-shop`.
+- Every proposed commit has a valid DCO sign-off from an authorized contributor identity.
+  A configured Git identity or AI co-author trailer alone does not establish authorization.
+  Never invent an identity or sign on behalf of a person without authorization.
+- The PR names the scanner alert, the authorization rule, and the originating issue.
+- AI Tool Disclosure selects AI-generated content and names the tools, known model versions,
+  and relevant instructions. Unavailable details are marked unknown.
+- Validation results match the actual commands and outcomes. Affirmation is checked only
+  when all applicable requirements are met. Draft status does not waive a requirement.
+- The required regression test and all gate checks pass. Required PR CI and scanner results
+  must pass before merge; pending checks are not reported as passed.
+
+Missing compliance must stop PR creation with a distinguishable refusal, such as
+`compliance-policy-unavailable`, `compliance-identity-unauthorized`,
+`compliance-signoff-missing`, `compliance-metadata-incomplete`, or
+`compliance-validation-failed`. The refusal states the unmet requirement and follows the
+terminal NOPATCH path. The gate must not disable checks or weaken policy to proceed.
+
+Gate tests must cover these refusals and a compliant proposal. They must also prove that a
+proposal cannot replace base-ref policy and that metadata reports failures accurately.
+These checks supplement `authorizePatch`; they do not widen its allow-list or give the
+patch author credentials.
 
 ## Refusal
 
@@ -100,8 +142,46 @@ both an existing unit test asserting traversal is rejected rather than sanitized
 `accessLogDisclosureChallenge`; `quarantineServer` as a `neutral-line` of
 `directoryListingChallenge`.
 
-The gate's regression test for this target:
+### Baseline delivery
+
+The maintainer selected the revised delivery plan from specification #2's compliance
+follow-up: the preparatory change carries the regression as
+[`artifacts/alert-6-regression.patch`](artifacts/alert-6-regression.patch), rather than an
+active failing test. This supersedes #4's requirement to land the failing test in the server
+test glob. No policy exception is required. The assertions are unchanged, and the original
+failure output remains in
+[`artifacts/alert-6-regression-baseline.txt`](artifacts/alert-6-regression-baseline.txt).
+
+To reproduce the baseline in a disposable checkout with dependencies installed:
+
+```sh
+git apply docs/agents/artifacts/alert-6-regression.patch
+node --import ./test/server/helpers/test-env.mjs --import tsx --test --test-force-exit test/server/keyServerPathTraversal.unit.test.ts
+```
+
+Expected result on the unmodified handler: three tests, two passes, and one assertion
+failure in `should reject ".." rather than resolve and serve it` (`sendFile` is called
+once, expected zero). A loader error, missing test, or different failure is not baseline
+evidence.
+
+The gate must read this patch from the trusted base commit before applying the author's
+proposal. The gate owns its application; the patch author cannot edit, replace, or omit
+the regression. The artifact may add only `test/server/keyServerPathTraversal.unit.test.ts`.
+It is a fixed validation input, not an override widening the author's allow-list.
+
+First apply the regression to the unmodified base in an isolated validation checkout and
+verify the expected failure. Then apply the authorized handler proposal and require the
+regression, server suite, API suite, and other gate checks to pass. A missing or changed
+regression, patch application failure, or unexpected baseline result blocks PR creation.
+Never skip the regression or accept its failure on the remediated tree.
+
+The successful remediation PR includes the unchanged regression test supplied by the gate
+alongside the authorized handler diff. The existing server test glob then runs it in CI.
+The gate must verify the final diff contains only the authorized proposal and that exact
+test addition. This trusted test addition must be supported in #9 before demonstration #10.
+
+The gate's explicit regression command is:
 
 ```
-node --test test/server/keyServerPathTraversal.unit.test.ts
+node --import ./test/server/helpers/test-env.mjs --import tsx --test --test-force-exit test/server/keyServerPathTraversal.unit.test.ts
 ```
