@@ -40,6 +40,13 @@ The set of paths a patch may touch. Defaults to the file the scanner finding nam
 empty when that file has either coupling. Widened only by a human commit to the base ref.
 _Avoid_: Whitelist, permitted files
 
+**Trusted verdict**:
+The triage job's own verdict comment for a named alert, decided against a named base commit.
+The only comment the patch author acts on: it selects the remediation target, and nothing
+else on the issue does, however well formed. A verdict naming a different alert or a moved
+base commit is not trusted for this run.
+_Avoid_: The verdict comment, the latest verdict
+
 **NOPATCH**:
 The patch gate's rejection outcome. Recorded as a comment on the originating issue; no pull
 request is opened.

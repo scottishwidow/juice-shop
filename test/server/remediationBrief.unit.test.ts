@@ -14,9 +14,13 @@ import {
   type ParsedVerdict
 } from '../../lib/remediationBrief'
 
-function verdictComment (overrides: Partial<Record<'verdict' | 'rule' | 'path' | 'snippet' | 'solve' | 'testCode', string>> = {}): string {
+const BASE_COMMIT = '5bc7ce9292a2237e64771a8b2b71b3df730d0800'
+
+function verdictComment (overrides: Partial<Record<'verdict' | 'alert' | 'base' | 'rule' | 'path' | 'snippet' | 'solve' | 'testCode', string>> = {}): string {
   const fields = {
     verdict: 'exploitable',
+    alert: '6',
+    base: BASE_COMMIT,
     rule: 'js/path-injection',
     path: 'routes/keyServer.ts',
     snippet: 'no',
@@ -27,6 +31,8 @@ function verdictComment (overrides: Partial<Record<'verdict' | 'rule' | 'path' |
   return [
     `**Verdict: ${fields.verdict}**`,
     '',
+    `- Alert: #${fields.alert}`,
+    `- Base: \`${fields.base}\``,
     `- Rule: \`${fields.rule}\``,
     `- Path: \`${fields.path}\``,
     `- Snippet coupling: ${fields.snippet}`,
@@ -42,6 +48,8 @@ void describe('parseVerdictComment', () => {
     const result = parseVerdictComment(verdictComment({ snippet: 'yes' }))
 
     assert.deepEqual(result, {
+      alertNumber: 6,
+      baseCommit: BASE_COMMIT,
       verdict: 'exploitable',
       ruleId: 'js/path-injection',
       path: 'routes/keyServer.ts',
@@ -55,6 +63,15 @@ void describe('parseVerdictComment', () => {
     const malformed = 'Just some prose, no structured verdict here.'
 
     assert.equal(parseVerdictComment(malformed), undefined)
+  })
+
+  void it('returns undefined when the alert number or base commit is absent', () => {
+    const withoutBinding = verdictComment()
+      .split('\n')
+      .filter(line => !line.startsWith('- Alert:') && !line.startsWith('- Base:'))
+      .join('\n')
+
+    assert.equal(parseVerdictComment(withoutBinding), undefined)
   })
 })
 
@@ -121,6 +138,8 @@ void describe('findCoveringTests', () => {
 
 void describe('buildRemediationBrief', () => {
   const verdict: ParsedVerdict = {
+    alertNumber: 6,
+    baseCommit: BASE_COMMIT,
     ruleId: 'js/path-injection',
     path: 'routes/keyServer.ts',
     verdict: 'exploitable',

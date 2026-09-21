@@ -11,19 +11,26 @@
 // public issue comments), reads the allow-list and target file from the checked-out base ref,
 // and proposes a diff. The diff is the only thing this job can produce, and it goes to a
 // workflow artifact, never to a comment, label, commit or pull request.
+//
+// Because the comment read is unauthenticated, anyone can write a comment this job sees. Only
+// `selectTrustedVerdict` decides which one it acts on, and every file it reads afterwards is
+// a tracked file of the pinned base commit read through `createBaseRefReader` (ADR-0005).
 
+import { execFileSync } from 'node:child_process'
 import { readFileSync, readdirSync, mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import process from 'node:process'
 
-import { computeAllowList } from '../../authorizePatch'
+import { computeAllowList, type BaseRefReader } from '../../authorizePatch'
+import { createBaseRefReader } from '../../baseRefReader'
 import { parseAlertNumber } from '../../parseAlertNumber'
+import { describeProposalRefusal, parseProposedPatch, PROPOSE_PATCH_TOOL_NAME, type ProposedPatch } from '../../proposedPatch'
+import { describeVerdictRefusal, selectTrustedVerdict, type IssueComment } from '../../trustedVerdict'
 import {
   buildRemediationBrief,
   extractCodeStyleRule,
   extractComplianceInstructions,
-  findCoveringTests,
-  parseVerdictComment
+  findCoveringTests
 } from '../../remediationBrief'
 
 const ANTHROPIC_MODEL = 'claude-sonnet-5'
@@ -38,12 +45,20 @@ function requireEnv (name: string): string {
   return value
 }
 
-function readBaseRefFile (path: string): string | undefined {
+function runGit (args: string[]): string | undefined {
   try {
-    return readFileSync(path, 'utf8')
+    return execFileSync('git', args, { encoding: 'utf8', maxBuffer: 16 * 1024 * 1024, stdio: ['ignore', 'pipe', 'ignore'] })
   } catch {
     return undefined
   }
+}
+
+function headCommit (): string {
+  const head = runGit(['rev-parse', 'HEAD'])?.trim()
+  if (head === undefined || !/^[0-9a-f]{40}$/.test(head)) {
+    throw new Error('Could not resolve the checked-out base commit.')
+  }
+  return head
 }
 
 function readTestFiles (): Record<string, string> {
@@ -75,7 +90,7 @@ function readTestFilesIn (dir: string): string[] {
   return files
 }
 
-async function fetchLatestVerdictComment (repo: string, issueNumber: string): Promise<string> {
+async function fetchIssueComments (repo: string, issueNumber: string): Promise<IssueComment[]> {
   // Unauthenticated read of a public issue's comments. This job declares no permissions, so
   // no GitHub token is used here; public issue comments do not require one.
   const response = await fetch(`https://api.github.com/repos/${repo}/issues/${issueNumber}/comments`, {
@@ -84,18 +99,8 @@ async function fetchLatestVerdictComment (repo: string, issueNumber: string): Pr
   if (!response.ok) {
     throw new Error(`Reading issue comments failed: ${response.status} ${await response.text()}`)
   }
-  const comments = await response.json() as Array<{ body: string }>
-  const verdictComments = comments.filter(comment => comment.body.includes('**Verdict:'))
-  const latest = verdictComments[verdictComments.length - 1]
-  if (latest === undefined) {
-    throw new Error('No triage verdict comment found on this issue; triage must run first.')
-  }
-  return latest.body
-}
-
-interface ProposedPatch {
-  diff: string
-  summary: string
+  const comments = await response.json() as unknown
+  return Array.isArray(comments) ? comments as IssueComment[] : []
 }
 
 async function proposePatch (brief: string): Promise<ProposedPatch> {
@@ -122,7 +127,7 @@ async function proposePatch (brief: string): Promise<ProposedPatch> {
         'every constraint, call the tool with an empty diff and explain why in the summary.'
       ].join(' '),
       tools: [{
-        name: 'propose_patch',
+        name: PROPOSE_PATCH_TOOL_NAME,
         description: 'Submit the proposed remediation as a unified diff, with a short summary of the change.',
         input_schema: {
           type: 'object',
@@ -133,7 +138,7 @@ async function proposePatch (brief: string): Promise<ProposedPatch> {
           required: ['diff', 'summary']
         }
       }],
-      tool_choice: { type: 'tool', name: 'propose_patch' },
+      tool_choice: { type: 'tool', name: PROPOSE_PATCH_TOOL_NAME },
       messages: [{ role: 'user', content: brief }]
     })
   })
@@ -142,12 +147,20 @@ async function proposePatch (brief: string): Promise<ProposedPatch> {
     throw new Error(`Anthropic API request failed: ${response.status} ${await response.text()}`)
   }
 
-  const body = await response.json() as { content: Array<{ type: string, input?: ProposedPatch }> }
-  const toolUse = body.content.find(block => block.type === 'tool_use')?.input
-  if (toolUse === undefined) {
-    throw new Error('Anthropic API response had no propose_patch tool call')
+  const result = parseProposedPatch(await response.json())
+  if (!result.valid) {
+    throw new Error(`Nothing was written: ${describeProposalRefusal(result.reason)}`)
   }
-  return toolUse
+  return result.patch
+}
+
+function readRequiredPolicy (readBaseRef: BaseRefReader, path: string, extract: (doc: string) => string | undefined, description: string): string {
+  const doc = readBaseRef(path)
+  const extracted = doc !== undefined ? extract(doc) : undefined
+  if (extracted === undefined) {
+    throw new Error(`Could not read ${description} from ${path} on the base ref.`)
+  }
+  return extracted
 }
 
 async function main (): Promise<void> {
@@ -160,35 +173,31 @@ async function main (): Promise<void> {
     throw new Error('Could not find an alert reference in this issue body (expected text such as `alert #6`).')
   }
 
-  const verdictCommentBody = await fetchLatestVerdictComment(repo, issueNumber)
-  const verdict = parseVerdictComment(verdictCommentBody)
-  if (verdict === undefined) {
-    throw new Error('The latest verdict comment on this issue is not in the expected structured format.')
+  const baseCommit = headCommit()
+  const readBaseRef = createBaseRefReader(baseCommit, runGit)
+
+  const selection = selectTrustedVerdict(await fetchIssueComments(repo, issueNumber), { alertNumber, baseCommit })
+  if (!selection.selected) {
+    throw new Error(`No remediation target was selected (\`${selection.reason}\`): ${describeVerdictRefusal(selection.reason)}`)
   }
+  const verdict = selection.verdict
   if (verdict.isTestCode) {
     throw new Error('The triaged finding is test code (not-applicable); remediation does not apply.')
   }
 
-  const targetContent = readBaseRefFile(verdict.path)
+  const targetContent = readBaseRef(verdict.path)
   if (targetContent === undefined) {
-    throw new Error(`Could not read ${verdict.path} from the checked-out base ref.`)
+    throw new Error(`\`${verdict.path}\` is not a readable tracked file at base commit ${baseCommit}.`)
   }
 
-  const allowList = computeAllowList(verdict.path, readBaseRefFile)
-
-  const contributingDoc = readBaseRefFile('CONTRIBUTING.md')
-  const codeStyleRule = contributingDoc !== undefined ? extractCodeStyleRule(contributingDoc) : undefined
-  if (codeStyleRule === undefined) {
-    throw new Error('Could not read the code style rule from CONTRIBUTING.md on the base ref.')
-  }
-
-  const securityTriageDoc = readBaseRefFile('docs/agents/security-triage.md')
-  const complianceInstructions = securityTriageDoc !== undefined
-    ? extractComplianceInstructions(securityTriageDoc, 'Patch author (#7)')
-    : undefined
-  if (complianceInstructions === undefined) {
-    throw new Error('Could not read the patch author compliance row from docs/agents/security-triage.md on the base ref.')
-  }
+  const allowList = computeAllowList(verdict.path, readBaseRef)
+  const codeStyleRule = readRequiredPolicy(readBaseRef, 'CONTRIBUTING.md', extractCodeStyleRule, 'the code style rule')
+  const complianceInstructions = readRequiredPolicy(
+    readBaseRef,
+    'docs/agents/security-triage.md',
+    doc => extractComplianceInstructions(doc, 'Patch author (#7)'),
+    "the patch author's compliance row"
+  )
 
   const allTestFiles = readTestFiles()
   const coveringTestPaths = findCoveringTests(verdict.path, allTestFiles)
@@ -198,7 +207,7 @@ async function main (): Promise<void> {
   }
 
   const regressionArtifactPath = `docs/agents/artifacts/alert-${alertNumber}-regression.patch`
-  const regressionArtifactContent = readBaseRefFile(regressionArtifactPath)
+  const regressionArtifactContent = readBaseRef(regressionArtifactPath)
   const regressionArtifact = regressionArtifactContent !== undefined
     ? { path: regressionArtifactPath, content: regressionArtifactContent }
     : undefined
@@ -221,7 +230,7 @@ async function main (): Promise<void> {
   writeFileSync(join(OUTPUT_DIR, 'proposed.patch'), proposal.diff)
   writeFileSync(join(OUTPUT_DIR, 'summary.md'), proposal.summary)
 
-  console.log(`Wrote proposal for alert #${alertNumber} to ${OUTPUT_DIR}/`)
+  console.log(`Wrote proposal for alert #${alertNumber} at base ${baseCommit} to ${OUTPUT_DIR}/`)
 }
 
 main().catch((error: unknown) => {

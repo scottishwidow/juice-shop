@@ -4,8 +4,9 @@ How a CodeQL finding becomes either a reviewed pull request or a recorded refusa
 defined in [routes/CONTEXT.md](../../routes/CONTEXT.md). Decisions are recorded in
 [docs/adr/0001](../adr/0001-mechanical-coupling-detection.md),
 [0002](../adr/0002-authorization-inputs-read-from-base-ref.md),
-[0003](../adr/0003-fork-contribution-bots-removed.md) and
-[0004](../adr/0004-triage-model-call-has-no-tools.md).
+[0003](../adr/0003-fork-contribution-bots-removed.md),
+[0004](../adr/0004-triage-model-call-has-no-tools.md) and
+[0005](../adr/0005-remediation-input-is-trusted-verdict-only.md).
 
 ## Stages
 
@@ -46,6 +47,10 @@ example "CodeQL alert #6"); `lib/parseAlertNumber.ts` reads it. Nothing else abo
 is trusted from the issue: the path and rule are fetched from the code-scanning API keyed by
 that number, so editing the issue body cannot redirect triage at a different file (issue #2,
 user story 13).
+
+The verdict comment states the alert number and the base commit it was decided against, as
+well as the rule, path and both coupling findings. Those two fields are what the `remediate`
+job binds itself to before it reads anything ([ADR-0005](../adr/0005-remediation-input-is-trusted-verdict-only.md)).
 
 The verdict is decided mechanically by `lib/triageVerdict.ts` against the checked-out base
 ref (`master`), before the model runs. The model call carries no tools and drafts only the
@@ -96,9 +101,25 @@ Implemented in `.github/workflows/security-triage.yml`'s `remediate` job, runnin
 The job declares `permissions: {}` and checks out with `persist-credentials: false`
 (issue #7, ADR-0002), so it makes no authenticated GitHub API call of any kind. It reads the
 verdict `triage` already posted from an unauthenticated read of the issue's public comments,
-rather than calling the code-scanning API a second time from a job with no credentials. The
-allow-list comes from `computeAllowList` in `lib/authorizePatch.ts` (the same function the
-gate will use), read against the checked-out base ref. The code style rule and the patch
+rather than calling the code-scanning API a second time from a job with no credentials.
+
+That read is unauthenticated, so anyone can write a comment the job sees. Which comment it
+acts on is decided by `selectTrustedVerdict` in `lib/trustedVerdict.ts`, and nowhere else:
+the comment must be posted by `github-actions[bot]`, the only identity the `triage` job can
+post as, and must name the alert the issue body names and the commit this job checked out.
+Each refusal has its own reason (`no-verdict-comment`, `untrusted-verdict-author`,
+`malformed-verdict-comment`, `alert-number-mismatch`, `base-commit-mismatch`) and stops the
+job before any file is read.
+
+Every base-ref read then goes through `createBaseRefReader` in `lib/baseRefReader.ts`, bound
+to that pinned commit: only a regular tracked file of that commit can be read, and absolute
+paths, `..` traversal and symlink escapes cannot. The model's reply is validated by
+`parseProposedPatch` in `lib/proposedPatch.ts` before anything is written, so a response that
+is not a well-formed `propose_patch` call of bounded size produces no artifact at all. See
+[ADR-0005](../adr/0005-remediation-input-is-trusted-verdict-only.md).
+
+The allow-list comes from `computeAllowList` in `lib/authorizePatch.ts` (the same function the
+gate will use), read against that same pinned base commit. The code style rule and the patch
 author's role constraints are extracted from `CONTRIBUTING.md` and this document's compliance
 table, both read from that same base ref, rather than duplicated by hand into the script. The
 model's only tool is `propose_patch`; its diff is written to `patch-author-output/` and
@@ -146,7 +167,7 @@ policy blocks PR creation.
 | Role | Required compliance instructions |
 | --- | --- |
 | Triage (#6) | Report the alert and coupling evidence. Do not claim checks passed or grant policy exceptions. Keep the model toolbox limited to comments. |
-| Patch author (#7) | Receive applicable base-ref policy constraints with the scoped brief. Return only a diff within the allow-list. Do not change tests or policy, push, sign off for a person, or create or edit PRs. Hold no credentials. |
+| Patch author (#7) | Receive applicable base-ref policy constraints with the scoped brief. Act only on the triage job's own verdict for the named alert and pinned base commit, and read only tracked files of that commit. Return only a diff within the allow-list. Do not change tests or policy, push, sign off for a person, or create or edit PRs. Hold no credentials. |
 | Gate (#8–#9) | Read trusted policy, validate the proposal and required checks, then prepare the commit and PR metadata. Make no model call. |
 
 Before opening a remediation PR, the gate must verify:

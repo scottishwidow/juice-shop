@@ -109,10 +109,18 @@ async function draftReasoning (alert: AlertDetail, result: TriageResult): Promis
   return text.trim()
 }
 
-function verdictSummary (alert: AlertDetail, result: TriageResult): string {
+function baseCommit (): string {
+  return execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim()
+}
+
+// The alert number and base commit are part of the verdict, not context: the patch author
+// job binds its own alert and checkout to them before it reads any file (ADR-0005).
+function verdictSummary (alert: AlertDetail, alertNumber: number, result: TriageResult): string {
   return [
     `**Verdict: ${result.verdict}**`,
     '',
+    `- Alert: #${alertNumber}`,
+    `- Base: \`${baseCommit()}\``,
     `- Rule: \`${alert.ruleId}\``,
     `- Path: \`${alert.path}\``,
     `- Snippet coupling: ${result.coupling.snippetCoupled ? 'yes' : 'no'}`,
@@ -141,7 +149,7 @@ async function main (): Promise<void> {
   const result = determineVerdict(alert.path, readBaseRefFile)
   const reasoning = await draftReasoning(alert, result)
 
-  const comment = `${verdictSummary(alert, result)}\n\n${reasoning}`
+  const comment = `${verdictSummary(alert, alertNumber, result)}\n\n${reasoning}`
   gh(['issue', 'comment', issueNumber, '--repo', repo, '--body', comment])
   gh([
     'issue', 'edit', issueNumber, '--repo', repo,

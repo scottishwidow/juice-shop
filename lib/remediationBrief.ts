@@ -6,6 +6,8 @@
 import type { AllowList } from './authorizePatch'
 
 export interface ParsedVerdict {
+  alertNumber: number
+  baseCommit: string
   ruleId: string
   path: string
   verdict: string
@@ -15,6 +17,8 @@ export interface ParsedVerdict {
 }
 
 const VERDICT_LINE = /\*\*Verdict:\s*(\S+)\*\*/
+const ALERT_LINE = /^- Alert: #(\d+)$/m
+const BASE_LINE = /^- Base: `([0-9a-f]{40})`$/m
 const RULE_LINE = /^- Rule: `([^`]+)`$/m
 const PATH_LINE = /^- Path: `([^`]+)`$/m
 const SNIPPET_LINE = /^- Snippet coupling: (yes|no)$/m
@@ -26,21 +30,30 @@ const TEST_CODE_LINE = /^- Test code: (yes|no)$/m
  * (`verdictSummary` in `lib/scripts/securityTriage/triage.ts`). The patch author brief reads
  * the verdict a human already read, rather than recomputing it, so both stages agree on the
  * same finding without a second scanner-API call from a job that holds no permissions.
+ *
+ * The alert number and base commit are required fields, not decoration: `selectTrustedVerdict`
+ * matches them against the alert the issue body names and the commit the job checked out, so a
+ * verdict cannot be replayed against a different finding or a moved base ref (ADR-0005).
  */
 export function parseVerdictComment (commentBody: string): ParsedVerdict | undefined {
   const verdict = VERDICT_LINE.exec(commentBody)?.[1]
+  const alertNumber = ALERT_LINE.exec(commentBody)?.[1]
+  const baseCommit = BASE_LINE.exec(commentBody)?.[1]
   const ruleId = RULE_LINE.exec(commentBody)?.[1]
   const path = PATH_LINE.exec(commentBody)?.[1]
   const snippetCoupled = SNIPPET_LINE.exec(commentBody)?.[1]
   const solveCoupled = SOLVE_LINE.exec(commentBody)?.[1]
   const isTestCode = TEST_CODE_LINE.exec(commentBody)?.[1]
 
-  if (verdict === undefined || ruleId === undefined || path === undefined ||
-      snippetCoupled === undefined || solveCoupled === undefined || isTestCode === undefined) {
+  if (verdict === undefined || alertNumber === undefined || baseCommit === undefined ||
+      ruleId === undefined || path === undefined || snippetCoupled === undefined ||
+      solveCoupled === undefined || isTestCode === undefined) {
     return undefined
   }
 
   return {
+    alertNumber: Number(alertNumber),
+    baseCommit,
     verdict,
     ruleId,
     path,
