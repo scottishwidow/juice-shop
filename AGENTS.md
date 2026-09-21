@@ -84,10 +84,6 @@ The AI should suggest code following [JS Standard Style](http://standardjs.com/)
 
 ### 3. Testing Requirements
 
-For any code changes (unless only `REFERENCES.md` or `SOLUTIONS.md` were modified):
-- **Unit/Integration Tests**: New features and changes should have tests. For how to write them, keep coverage high, and close coverage gaps, see the [write-tests skill](./.ai/skills/write-tests/SKILL.md).
-- **E2E Tests**: Required for new/modified challenges (authoring guidance in the [write-tests skill](./.ai/skills/write-tests/SKILL.md)).
-- **RSN (Refactoring Safety Net)**: Required when modifying existing code that is part of a coding challenge (see the [verify-rsn-fix skill](./.ai/skills/verify-rsn-fix/SKILL.md) for details).
 - **Run Tests Locally**:
   ```bash
   npm test                    # Runs frontend, server, and api tests
@@ -107,9 +103,10 @@ git commit -s -m "Your commit message"
 
 ### 5. Branch and PR Strategy
 
-- Work on `develop` branch-based feature branches.
+- For this fork, base feature branches and PRs on `master`. Upstream PRs target `develop`.
 - Keep PRs focused on a single scope.
 - Reference related issues in PR descriptions.
+- Before creating, updating, or reopening a PR, follow [PR compliance](docs/agents/issue-tracker.md#pr-compliance), including AI disclosure and verification of every commit's DCO sign-off.
 
 ## Development Workflow
 
@@ -182,7 +179,8 @@ Before submitting a PR:
 - [ ] RSN check passing (if modified code relevant for a coding challenge)
 - [ ] Manual testing completed
 - [ ] Commits are signed off
-- [ ] PR based on `develop` branch
+- [ ] PR targets the correct repository and base branch
+- [ ] PR compliance preflight completed
 - [ ] Single, focused scope
 - [ ] All CI checks passing
 
@@ -212,4 +210,3 @@ Default five canonical labels (needs-triage, needs-info, ready-for-agent, ready-
 ### Domain docs
 
 Multi-context: root `CONTEXT-MAP.md` pointing at per-context `CONTEXT.md` files, each with its own `docs/adr/`. See `docs/agents/domain.md`.
-
