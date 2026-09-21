@@ -9,6 +9,14 @@ jobs:
   triage:
     # Only a human applying sec:needs-triage starts this job; no other label or event does.
     if: github.event.label.name == 'sec:needs-triage'
+    # Declared per job rather than inherited, so each job's credential set is legible in one
+    # place. security-events: read is the scope the code-scanning API requires: the alert's
+    # rule and path are read from it, never from the issue body. issues: write covers comment
+    # creation and the sec:needs-triage -> sec:triaged swap, and nothing else.
+    permissions:
+      contents: read
+      issues: write
+      security-events: read
     runs-on: ubuntu-latest
     steps:
       - name: "Check out the trusted base ref"
@@ -82,6 +90,7 @@ jobs:
       contents: write
       pull-requests: write
       issues: write
+      security-events: read
     runs-on: ubuntu-latest
     steps:
       - name: "Check out the trusted base ref"
