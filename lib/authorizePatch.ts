@@ -95,6 +95,32 @@ function couplingReasonOf (targetPath: string, readBaseRef: BaseRefReader): Refu
   return undefined
 }
 
+export interface AllowList {
+  paths: string[]
+  targetAllowed: boolean
+  couplingReason?: RefusalReason
+}
+
+/**
+ * Computes the allow-list for `targetPath`: the alert's own path, granted unless the base-ref
+ * copy of the file carries snippet or solve coupling, plus any paths granted by
+ * `.taskflow/allowlist.yml` on the base ref (see docs/agents/security-triage.md#allow-list).
+ * Shared by `authorizePatch` and the remediation brief (issue #7), so both read the same
+ * allow-list rather than two independently maintained copies of this logic.
+ */
+export function computeAllowList (targetPath: string, readBaseRef: BaseRefReader): AllowList {
+  const overrideAllowed = overrideAllowedPaths(readBaseRef)
+  const couplingReason = couplingReasonOf(targetPath, readBaseRef)
+  const targetAllowed = couplingReason === undefined || overrideAllowed.has(targetPath)
+
+  const paths = new Set(overrideAllowed)
+  if (targetAllowed) {
+    paths.add(targetPath)
+  }
+
+  return { paths: [...paths], targetAllowed, couplingReason }
+}
+
 /**
  * Decides whether a model-authored patch may become a pull request. Every input is either
  * passed in directly or read from the base ref via `readBaseRef`, never from the patched
@@ -117,19 +143,13 @@ export function authorizePatch (targetPath: string, diff: string, readBaseRef: B
     }
   }
 
-  const overrideAllowed = overrideAllowedPaths(readBaseRef)
-  const targetCouplingReason = couplingReasonOf(targetPath, readBaseRef)
-  const targetAllowed = targetCouplingReason === undefined || overrideAllowed.has(targetPath)
-
-  const allowedPaths = new Set(overrideAllowed)
-  if (targetAllowed) {
-    allowedPaths.add(targetPath)
-  }
+  const allowList = computeAllowList(targetPath, readBaseRef)
+  const allowedPaths = new Set(allowList.paths)
 
   for (const path of touchedPaths) {
     if (!allowedPaths.has(path)) {
-      if (path === targetPath && targetCouplingReason !== undefined) {
-        return { allowed: false, reason: targetCouplingReason }
+      if (path === targetPath && allowList.couplingReason !== undefined) {
+        return { allowed: false, reason: allowList.couplingReason }
       }
       return { allowed: false, reason: 'path-not-allowed' }
     }

@@ -29,3 +29,33 @@ jobs:
           ISSUE_NUMBER: ${{ github.event.issue.number }}
           ISSUE_BODY: ${{ github.event.issue.body }}
         run: npx tsx lib/scripts/securityTriage/triage.ts
+  remediate:
+    # Only a human applying sec:ready-for-remediation starts this job; no other label or event
+    # does. This job declares no permissions of its own (issue #7, ADR-0002): it holds no
+    # write credential of any kind, and its checkout does not persist one either.
+    if: github.event.label.name == 'sec:ready-for-remediation'
+    permissions: {}
+    runs-on: ubuntu-latest
+    steps:
+      - name: "Check out the trusted base ref"
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 #v7.0.1
+        with:
+          ref: master
+          persist-credentials: false
+      - name: "Use Node.js"
+        uses: actions/setup-node@39370e3970a6d050c480ffad4ff0ed4d3fdee5af #v4.1.0
+        with:
+          node-version: 24
+      - name: "Install application minimalistically"
+        run: npm install --ignore-scripts
+      - name: "Run remediate"
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+          ISSUE_BODY: ${{ github.event.issue.body }}
+        run: npx tsx lib/scripts/securityTriage/remediate.ts
+      - name: "Upload proposed patch"
+        uses: actions/upload-artifact@6f51ac03b9356f520e9adb1b1b7802705f340c2b #v4.5.0
+        with:
+          name: proposed-patch-${{ github.event.issue.number }}
+          path: patch-author-output/

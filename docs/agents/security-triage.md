@@ -91,6 +91,19 @@ Style rule, and the contract of the tests that already cover the target. It does
 `CLAUDE.md`, which is written for an agent with the whole repository in scope and a human
 reviewing at the end.
 
+Implemented in `.github/workflows/security-triage.yml`'s `remediate` job, running
+`lib/scripts/securityTriage/remediate.ts`; brief assembly is the pure `lib/remediationBrief.ts`.
+The job declares `permissions: {}` and checks out with `persist-credentials: false`
+(issue #7, ADR-0002), so it makes no authenticated GitHub API call of any kind. It reads the
+verdict `triage` already posted from an unauthenticated read of the issue's public comments,
+rather than calling the code-scanning API a second time from a job with no credentials. The
+allow-list comes from `computeAllowList` in `lib/authorizePatch.ts` (the same function the
+gate will use), read against the checked-out base ref. The code style rule and the patch
+author's role constraints are extracted from `CONTRIBUTING.md` and this document's compliance
+table, both read from that same base ref, rather than duplicated by hand into the script. The
+model's only tool is `propose_patch`; its diff is written to `patch-author-output/` and
+uploaded as a workflow artifact, never posted, committed, or pushed anywhere.
+
 ## PR compliance contract
 
 This contract applies to the briefs and gate planned in issues #6–#9. Those jobs are not
