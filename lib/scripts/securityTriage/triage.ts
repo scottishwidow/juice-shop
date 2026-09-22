@@ -63,6 +63,28 @@ function baseCommit (): string {
   return execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim()
 }
 
+// The publishing credential this job holds for its own `gh` calls, kept out of the agent's
+// process tree. This job both drives a tool-using agent and can comment on and relabel the
+// issue; `remediate`/`publish` keep those two apart with a job boundary, and until triage is
+// split the same way, removing the token here is what keeps a model-driven shell command from
+// inheriting the authority that publishes its verdict (issue #30 acceptance criteria).
+const PUBLISHING_CREDENTIAL_VARIABLES = ['GH_TOKEN', 'GITHUB_TOKEN']
+
+export function agentEnvironment (dataDir: string): NodeJS.ProcessEnv {
+  const environment: NodeJS.ProcessEnv = {
+    ...process.env,
+    ANTHROPIC_API_KEY: requireEnv('ANTHROPIC_API_KEY'),
+    CONTAINER_WORKSPACE: process.cwd(),
+    LOG_DIR: path.join(dataDir, 'logs'),
+    XDG_DATA_HOME: dataDir,
+    PYTHONPATH: [process.cwd(), process.env.PYTHONPATH].filter(Boolean).join(path.delimiter)
+  }
+  for (const name of PUBLISHING_CREDENTIAL_VARIABLES) {
+    delete environment[name]
+  }
+  return environment
+}
+
 export type TaskflowRunOutcome =
   | { ok: true, verdict: TaskflowVerdict }
   | { ok: false, reason: string }
@@ -84,14 +106,7 @@ export function runTaskflow (
     '-g', `message=${alert.message}`
   ], {
     encoding: 'utf8',
-    env: {
-      ...process.env,
-      ANTHROPIC_API_KEY: requireEnv('ANTHROPIC_API_KEY'),
-      CONTAINER_WORKSPACE: process.cwd(),
-      LOG_DIR: path.join(dataDir, 'logs'),
-      XDG_DATA_HOME: dataDir,
-      PYTHONPATH: [process.cwd(), process.env.PYTHONPATH].filter(Boolean).join(path.delimiter)
-    }
+    env: agentEnvironment(dataDir)
   })
 
   if (result.error !== undefined) {

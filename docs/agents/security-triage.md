@@ -52,10 +52,17 @@ configuration, independent of any label and with no secrets.
 `remediate` and `publish` key the finding by the alert number in the issue body and take the
 rule and path from the assessment `triage` published, so neither makes a scanner call.
 
-Every job that runs a model holds no credential: `remediate` declares `permissions: {}` and
-must check out with `persist-credentials: false`. Every job that holds a credential runs no
-model: `publish` and `triage` make no model-driven shell call. The `triage` job's write
-permission is comment and label changes only.
+`remediate` runs a model and holds no credential: `permissions: {}`, and a checkout with
+`persist-credentials: false`. `publish` holds the write credentials and runs no model. Those
+two are separated by a job boundary.
+
+`triage` is the one job on both sides of that line: it runs a tool-using agent and posts the
+verdict with its own `GH_TOKEN`. Its write permission is comment and label changes only, and
+`agentEnvironment` (`lib/scripts/securityTriage/triage.ts`) removes `GH_TOKEN`/`GITHUB_TOKEN`
+from the environment the TaskFlow process is given, so the token stays with the `gh` calls the
+wrapper script makes itself. That is weaker than a job boundary; splitting `triage` the way
+`remediate`/`publish` are split is the way to close it
+([ADR-0009](../adr/0009-taskflow-triage-implementation.md)).
 
 ## Triage job
 

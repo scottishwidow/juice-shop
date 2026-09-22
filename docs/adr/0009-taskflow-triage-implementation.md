@@ -4,6 +4,11 @@ status: accepted
 
 # TaskFlow triage implementation: package layout, pinned versions, and compatibility
 
+> Partly superseded by [ADR-0010](0010-taskflow-remediation-implementation.md). The sections
+> below marked *Superseded* reasoned about the bespoke `remediate`/`gate` jobs that ADR-0010
+> deleted, and no longer describe the code. The pins, the package layout and the
+> `capture: response`/`manifest.json` reasoning are unchanged and still current.
+
 ADR-0007 decided to replace `triage` with the SecLab TaskFlow Agent runner and assumed a
 released, mutually compatible pair of `seclab-taskflow-agent` and `seclab-taskflows` versions
 would carry the native Anthropic backend and the container-shell source-access toolbox. That
@@ -98,6 +103,12 @@ reported as a distinct triage-execution failure, not assumed away.
 
 ## `VerdictPayload` keeps its existing shape
 
+*Superseded by [ADR-0010](0010-taskflow-remediation-implementation.md): `gate`,
+`lib/remediationBrief.ts` and the allow-list are gone, and the coupling flags this section
+treats as a read-shape dependency now have no reader at all. The payload shape itself is
+unchanged, and `lib/trustedVerdict.ts` still selects the comment; what follows is the
+reasoning as it stood for issue #30.*
+
 `remediate`/`gate` (unchanged; issue #31's scope) read `triage`'s verdict comment through
 `lib/trustedVerdict.ts` and `lib/verdictPayload.ts`, and `lib/remediationBrief.ts` interpolates
 `verdict.ruleId`, `.path`, `.verdict` and both coupling flags into the patch author's brief.
@@ -109,6 +120,11 @@ validation of them, is unchanged, so a payload without the new fields still deco
 
 ## `parseAlertNumber` is retained, not replaced
 
+*Superseded by [ADR-0010](0010-taskflow-remediation-implementation.md), which deleted
+`lib/parseAlertNumber.ts` and moved `remediate` onto `lib/parseAlertUrl.ts`. The consequence
+described below no longer holds: a demo issue needs only the alert URL, and no `alert #<n>`
+text.*
+
 Issue #29 changes the *triage* input format from a transcribed `alert #<n>` text reference to a
 pasted alert URL. `remediate.ts` and `gate.ts` are unchanged (issue #31's scope) and still call
 `lib/parseAlertNumber.ts` to read `alert #<n>` text from the issue body - so that file is a
@@ -117,15 +133,23 @@ The practical consequence, until issue #31 aligns the two: an issue must carry b
 URL (for `triage`) and `alert #<n>` text (for `remediate`/`gate`) to go all the way through the
 demo loop today. Documented in `docs/agents/security-triage.md`.
 
-## Mount write access is not restricted, and is judged acceptable for this job
+## Mount write access is not restricted, and the job's own credential is withheld instead
 
 The container-shell source-access toolbox bind-mounts `CONTAINER_WORKSPACE` read-write (upstream
 does not offer a read-only mount option), so a shell command the agent runs could in principle
-modify or delete files in the `triage` job's checkout. The job holds no credential that could
-turn that into lasting damage: `contents: write` is not granted, the checkout uses
-`persist-credentials: false`, `CONTAINER_NETWORK: none` blocks egress, and the runner VM is
-discarded at the end of the job regardless of what happened inside it. Restricting the mount
-further is not pursued in this pass.
+modify or delete files in the `triage` job's checkout. Nothing in the workspace is published:
+`contents: write` is not granted, the checkout uses `persist-credentials: false`,
+`CONTAINER_NETWORK: none` blocks egress, and the runner VM is discarded at the end of the job.
+Restricting the mount further is not pursued in this pass.
+
+The credential the job does hold is the concern the mount is not. Unlike `remediate`, `triage`
+both drives a tool-using agent and posts the verdict, so its `GH_TOKEN` (`issues: write`,
+`security-events: read`) is in the job's environment while the agent runs. `agentEnvironment`
+in `lib/scripts/securityTriage/triage.ts` therefore removes `GH_TOKEN` and `GITHUB_TOKEN`
+from the environment handed to the TaskFlow process, so the token stays with the `gh` calls
+the wrapper script makes itself and never reaches the agent's process tree. That is weaker
+than the job boundary ADR-0010 gives remediation, and splitting `triage` into an uncredentialed
+agent job and a credentialed publishing job is the way to close the gap; it is not done here.
 
 ## Live-run verification is deferred
 
@@ -143,4 +167,6 @@ chain surface: a commit-SHA pin on an unreleased branch instead of a tagged rele
 digest pin on a container image this fork does not build. Both are recorded here so they are
 easy to find and revisit, rather than silently drifting. `remediate`, `gate`, its allow-list
 computation (`lib/authorizePatch.ts`), `lib/patchGate.ts`, `lib/remediationBrief.ts`,
-`lib/remediationRefusal.ts` and `lib/baseRefReader.ts` are unaffected by this change.
+`lib/remediationRefusal.ts` and `lib/baseRefReader.ts` are unaffected by this change - and
+were deleted shortly afterwards by
+[ADR-0010](0010-taskflow-remediation-implementation.md).

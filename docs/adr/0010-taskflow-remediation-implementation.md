@@ -8,7 +8,10 @@ ADR-0009 replaced `triage` with the SecLab TaskFlow Agent runner and left `remed
 on the bespoke implementation. This ADR replaces them, completing issue #29. It supersedes
 [ADR-0005](0005-remediation-input-is-trusted-verdict-only.md) in the parts about pinning
 remediation to one base commit and about the allow-list; the part about which comment is
-trusted survives unchanged and is the reason `lib/trustedVerdict.ts` is retained.
+trusted survives unchanged and is the reason `lib/trustedVerdict.ts` is retained. It also
+supersedes the two sections of [ADR-0009](0009-taskflow-triage-implementation.md) that
+reasoned about the bespoke `remediate`/`gate` - its `VerdictPayload` read-shape argument and
+its retention of `lib/parseAlertNumber.ts`; both are marked there.
 
 ## The fix is an edited checkout, not a proposed diff
 
