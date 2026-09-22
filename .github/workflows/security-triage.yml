@@ -9,6 +9,7 @@ on:
       - 'lib/couplingEvidence.ts'
       - 'lib/verdictPayload.ts'
       - 'lib/taskflowVerdict.ts'
+      - 'lib/taskflowDataDir.ts'
       - 'lib/trustedVerdict.ts'
       - 'lib/issueComments.ts'
       - 'lib/excludedPaths.ts'
