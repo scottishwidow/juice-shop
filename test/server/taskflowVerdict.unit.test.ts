@@ -27,10 +27,10 @@ void describe('parseTaskflowVerdict', () => {
     }
   })
 
-  void it('accepts an empty evidence array', () => {
+  void it('rejects an empty evidence array', () => {
     const result = parseTaskflowVerdict({ ...VALID, evidence: [] })
 
-    assert.equal(result.ok, true)
+    assert.deepEqual(result, { ok: false, reason: 'malformed-output' })
   })
 
   void it('returns "no-output" for undefined', () => {

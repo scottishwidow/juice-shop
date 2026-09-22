@@ -24,10 +24,9 @@ env:
   TASKFLOW_TOOLS_COMMIT: "b69171affdaa2700ba58f045122937651a2b0a1b"
 jobs:
   lint-taskflow:
-    # Native TaskFlow configuration linting, on every push/PR that touches the taskflow files -
-    # independent of the issues:labeled trigger the other jobs use, and independent of secrets:
-    # --lint validates grammar and resource resolution offline, with no model call.
     if: github.event_name == 'push' || github.event_name == 'pull_request'
+    permissions:
+      contents: read
     runs-on: ubuntu-latest
     steps:
       - name: "Check out Git repository"
@@ -76,8 +75,6 @@ jobs:
         with:
           python-version: "3.12"
       - name: "Install TaskFlow runner and companion tools"
-        # Docker (for the container-shell MCP tool) is already present and running on
-        # ubuntu-latest; no separate setup step is needed.
         run: |
           pip install "seclab-taskflow-agent==${{ env.TASKFLOW_AGENT_VERSION }}" \
             "seclab-taskflows @ git+https://github.com/GitHubSecurityLab/seclab-taskflows.git@${{ env.TASKFLOW_TOOLS_COMMIT }}"

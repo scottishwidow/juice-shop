@@ -23,19 +23,15 @@ export interface VerdictPayload {
   snippetCoupled: boolean
   solveCoupled: boolean
   isTestCode: boolean
-  // Additive fields carrying the TaskFlow agent's own investigation (docs/adr/0009-taskflow-
-  // triage-implementation.md). Optional so a payload written before this change - or read by
-  // code that does not know about them - still decodes; `remediate`/`gate` do not require them.
   reasoning?: string
   evidence?: VerdictEvidenceItem[]
 }
 
-const PAYLOAD_BLOCK = /<!-- security-triage:verdict-payload\n([\s\S]*?)\n-->/
+const PAYLOAD_BLOCK = /<!-- security-triage:verdict-payload\n([\s\S]*?)\n-->/g
 
 /** Marks a comment as carrying a verdict payload, for the initial candidate filter. */
 export const VERDICT_PAYLOAD_MARKER = '<!-- security-triage:verdict-payload'
 
-/** Shared with `lib/taskflowVerdict.ts`, which validates the same evidence-item shape. */
 export function isValidEvidenceItem (value: unknown): value is VerdictEvidenceItem {
   if (typeof value !== 'object' || value === null) {
     return false
@@ -83,14 +79,16 @@ export function encodeVerdictPayload (payload: VerdictPayload): string {
  * the paragraph, or GitHub normalising whitespace, cannot break the handoff.
  */
 export function decodeVerdictPayload (commentBody: string): VerdictPayload | undefined {
-  const match = PAYLOAD_BLOCK.exec(commentBody)
-  if (match === undefined || match === null) {
-    return undefined
+  const matches = [...commentBody.matchAll(PAYLOAD_BLOCK)]
+  for (let index = matches.length - 1; index >= 0; index--) {
+    try {
+      const parsed: unknown = JSON.parse(matches[index][1])
+      if (isValidPayload(parsed)) {
+        return parsed
+      }
+    } catch {
+      continue
+    }
   }
-  try {
-    const parsed: unknown = JSON.parse(match[1])
-    return isValidPayload(parsed) ? parsed : undefined
-  } catch {
-    return undefined
-  }
+  return undefined
 }

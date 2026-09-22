@@ -70,4 +70,16 @@ void describe('parseAlertUrl', () => {
 
     assert.deepEqual(result, { ok: false, reason: 'missing' })
   })
+
+  void it('does not match an alert URL embedded in another URL', () => {
+    const result = parseAlertUrl(`https://attacker.example/redirect/${ALERT_URL}`, REPO)
+
+    assert.deepEqual(result, { ok: false, reason: 'missing' })
+  })
+
+  void it('does not match an alert URL on a lookalike host', () => {
+    const result = parseAlertUrl(`https://github.com.attacker.example/${REPO}/security/code-scanning/6`, REPO)
+
+    assert.deepEqual(result, { ok: false, reason: 'missing' })
+  })
 })

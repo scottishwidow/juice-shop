@@ -3,22 +3,6 @@
  * SPDX-License-Identifier: MIT
  */
 
-// CLI script run by the `triage` job in .github/workflows/security-triage.yml.
-//
-// Reads the one code-scanning alert URL a human pasted into the labelled issue, fetches the
-// finding from the code-scanning API, and runs the TaskFlow agent (security_triage_taskflow/)
-// to investigate the checked-out base ref and derive a verdict - confirmed, not-applicable, or
-// inconclusive (docs/adr/0007-taskflow-security-workflows.md,
-// docs/adr/0009-taskflow-triage-implementation.md). Deterministic mechanical coupling markers
-// no longer decide the verdict; they are read only as investigative context and informational
-// payload evidence (lib/couplingEvidence.ts).
-//
-// The workflow script itself performs every write (the comment and the label swap), with the
-// job's own `issues: write` permission; the model performs none - its output is read back from
-// the TaskFlow run's own manifest.json artifact after the process exits, never trusted from a
-// shell step templated with agent-produced text (see security_triage_taskflow/taskflows/
-// triage.yaml for why `capture: response` plus that file read is the safe mechanism here).
-
 import { execFileSync, spawnSync } from 'node:child_process'
 import { readFileSync, mkdtempSync, existsSync, readdirSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -30,7 +14,7 @@ import { computeCouplingEvidence } from '../../couplingEvidence'
 import { encodeVerdictPayload, type VerdictPayload } from '../../verdictPayload'
 import { parseTaskflowVerdict, describeTaskflowVerdictFailure, type TaskflowVerdict } from '../../taskflowVerdict'
 
-interface AlertDetail {
+export interface AlertDetail {
   ruleId: string
   path: string
   message: string
@@ -79,19 +63,18 @@ function baseCommit (): string {
   return execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim()
 }
 
-type TaskflowRunOutcome =
+export type TaskflowRunOutcome =
   | { ok: true, verdict: TaskflowVerdict }
   | { ok: false, reason: string }
 
-/**
- * Runs the triage taskflow against the checked-out base ref and reads its structured verdict
- * back from the run's own manifest.json artifact - never by templating agent-produced text
- * into a further shell step (see security_triage_taskflow/taskflows/triage.yaml).
- */
-function runTaskflow (alert: AlertDetail, alertNumber: number): TaskflowRunOutcome {
+export function runTaskflow (
+  alert: AlertDetail,
+  alertNumber: number,
+  spawnTaskflow: typeof spawnSync = spawnSync
+): TaskflowRunOutcome {
   const dataDir = mkdtempSync(path.join(tmpdir(), 'security-triage-taskflow-'))
 
-  const result = spawnSync('python3', [
+  const result = spawnTaskflow('python3', [
     '-m', 'seclab_taskflow_agent',
     '-t', 'security_triage_taskflow.taskflows.triage',
     '-m', 'security_triage_taskflow.configs.model_config',
@@ -119,6 +102,16 @@ function runTaskflow (alert: AlertDetail, alertNumber: number): TaskflowRunOutco
   }
   if (result.stderr !== undefined && result.stderr !== '') {
     console.error(result.stderr)
+  }
+
+  if (result.error !== undefined) {
+    return { ok: false, reason: `The TaskFlow process failed to start: ${result.error.message}.` }
+  }
+  if (result.signal !== null) {
+    return { ok: false, reason: `The TaskFlow process was terminated by signal ${result.signal}.` }
+  }
+  if (result.status !== 0) {
+    return { ok: false, reason: `The TaskFlow process exited with status ${result.status ?? 'unknown'}.` }
   }
 
   const artifactsRoot = path.join(dataDir, 'seclab-taskflow-agent', 'artifacts')
@@ -166,45 +159,78 @@ function verdictSummary (alert: AlertDetail, alertNumber: number, base: string, 
 }
 
 function evidenceList (verdict: TaskflowVerdict): string {
-  if (verdict.evidence.length === 0) {
-    return ''
-  }
   return ['', '**Evidence:**', ...verdict.evidence.map(item => `- \`${item.file}\`: ${item.note}`)].join('\n')
 }
 
-async function main (): Promise<void> {
-  const repo = requireEnv('GITHUB_REPOSITORY')
-  const issueNumber = requireEnv('ISSUE_NUMBER')
-  const issueBody = process.env.ISSUE_BODY ?? ''
-  const runLink = workflowRunLink(repo)
+export interface SecurityTriageInput {
+  repo: string
+  issueNumber: string
+  issueBody: string
+  runLink: string
+}
+
+export interface SecurityTriageDependencies {
+  fetchAlertDetail: (repo: string, alertNumber: number) => AlertDetail
+  readBaseRefFile: (path: string) => string | undefined
+  baseCommit: () => string
+  runTaskflow: (alert: AlertDetail, alertNumber: number) => TaskflowRunOutcome
+  comment: (issueNumber: string, repo: string, body: string) => void
+  markTriaged: (issueNumber: string, repo: string) => void
+}
+
+const DEFAULT_DEPENDENCIES: SecurityTriageDependencies = {
+  fetchAlertDetail,
+  readBaseRefFile,
+  baseCommit,
+  runTaskflow,
+  comment: (issueNumber, repo, body) => {
+    gh(['issue', 'comment', issueNumber, '--repo', repo, '--body', body])
+  },
+  markTriaged: (issueNumber, repo) => {
+    gh([
+      'issue', 'edit', issueNumber, '--repo', repo,
+      '--add-label', 'sec:triaged',
+      '--remove-label', 'sec:needs-triage'
+    ])
+  }
+}
+
+function failureComment (message: string, runLink: string): string {
+  const suffix = runLink === '' ? '' : `\n\nWorkflow run: ${runLink}`
+  return `${message} No verdict was recorded; \`sec:needs-triage\` is unchanged.${suffix}`
+}
+
+export function runSecurityTriage (
+  input: SecurityTriageInput,
+  dependencies: SecurityTriageDependencies = DEFAULT_DEPENDENCIES
+): boolean {
+  const { repo, issueNumber, issueBody, runLink } = input
 
   const parsedAlert = parseAlertUrl(issueBody, repo)
   if (!parsedAlert.ok) {
-    const suffix = runLink === '' ? '' : `\n\nWorkflow run: ${runLink}`
-    gh([
-      'issue', 'comment', issueNumber, '--repo', repo, '--body',
-      `${describeAlertUrlFailure(parsedAlert.reason)} No verdict was recorded; ` +
-      `\`sec:needs-triage\` is unchanged.${suffix}`
-    ])
-    process.exitCode = 1
-    return
+    dependencies.comment(issueNumber, repo, failureComment(describeAlertUrlFailure(parsedAlert.reason), runLink))
+    return false
   }
 
   const alertNumber = parsedAlert.alert.alertNumber
-  const alert = fetchAlertDetail(repo, alertNumber)
-  const evidence = computeCouplingEvidence(alert.path, readBaseRefFile)
-  const base = baseCommit()
+  let alert: AlertDetail
+  try {
+    alert = dependencies.fetchAlertDetail(repo, alertNumber)
+  } catch {
+    dependencies.comment(issueNumber, repo, failureComment(`Triage could not read alert #${alertNumber}.`, runLink))
+    return false
+  }
 
-  const outcome = runTaskflow(alert, alertNumber)
+  const evidence = computeCouplingEvidence(alert.path, dependencies.readBaseRefFile)
+  const base = dependencies.baseCommit()
+
+  const outcome = dependencies.runTaskflow(alert, alertNumber)
   if (!outcome.ok) {
-    const suffix = runLink === '' ? '' : `\n\nWorkflow run: ${runLink}`
-    gh([
-      'issue', 'comment', issueNumber, '--repo', repo, '--body',
-      `Triage execution failed for alert #${alertNumber}: ${outcome.reason} No verdict was ` +
-      `recorded; \`sec:needs-triage\` is unchanged.${suffix}`
-    ])
-    process.exitCode = 1
-    return
+    dependencies.comment(issueNumber, repo, failureComment(
+      `Triage execution failed for alert #${alertNumber}: ${outcome.reason}`,
+      runLink
+    ))
+    return false
   }
 
   const payload: VerdictPayload = {
@@ -229,15 +255,29 @@ async function main (): Promise<void> {
     encodeVerdictPayload(payload)
   ].join('\n')
 
-  gh(['issue', 'comment', issueNumber, '--repo', repo, '--body', comment])
-  gh([
-    'issue', 'edit', issueNumber, '--repo', repo,
-    '--add-label', 'sec:triaged',
-    '--remove-label', 'sec:needs-triage'
-  ])
+  dependencies.comment(issueNumber, repo, comment)
+  dependencies.markTriaged(issueNumber, repo)
+  return true
 }
 
-main().catch((error: unknown) => {
-  console.error(error)
-  process.exitCode = 1
-})
+function main (): void {
+  const repo = requireEnv('GITHUB_REPOSITORY')
+  const success = runSecurityTriage({
+    repo,
+    issueNumber: requireEnv('ISSUE_NUMBER'),
+    issueBody: process.env.ISSUE_BODY ?? '',
+    runLink: workflowRunLink(repo)
+  })
+  if (!success) {
+    process.exitCode = 1
+  }
+}
+
+if (require.main === module) {
+  try {
+    main()
+  } catch (error: unknown) {
+    console.error(error)
+    process.exitCode = 1
+  }
+}

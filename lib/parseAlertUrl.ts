@@ -3,13 +3,8 @@
  * SPDX-License-Identifier: MIT
  */
 
-// Reads the one code-scanning alert URL a human pasted into a labelled issue body. Only the
-// URL's owner/repo/alert-number are trusted from the issue; the finding's rule and path are
-// fetched from the code-scanning API keyed by that number, never from the issue body (issue
-// #2, user story 13; issue #29, user story 4), so editing the body cannot redirect triage at a
-// different file.
-
-const ALERT_URL_PATTERN = /https:\/\/github\.com\/([^/\s]+)\/([^/\s]+)\/security\/(code-scanning|secret-scanning|dependabot)\/(\d+)\b/g
+const URL_PATTERN = /(?:^|[\s(<])(https:\/\/[^\s<>()[\]]+)/gm
+const ALERT_PATH_PATTERN = /^\/([^/]+)\/([^/]+)\/security\/(code-scanning|secret-scanning|dependabot)\/(\d+)\/?$/
 
 export interface ParsedAlertUrl {
   owner: string
@@ -34,19 +29,25 @@ const FAILURE_DESCRIPTIONS: Record<AlertUrlFailureReason, string> = {
     'Triage only supports same-repository alerts.'
 }
 
-/** A one-sentence, human-readable explanation of why no alert was accepted, for the issue comment. */
 export function describeAlertUrlFailure (reason: AlertUrlFailureReason): string {
   return FAILURE_DESCRIPTIONS[reason]
 }
 
-/**
- * Parses the one code-scanning alert URL a human pasted into `issueBody`, requiring it to name
- * `expectedRepo` (an `owner/repo` string, typically `GITHUB_REPOSITORY`). Distinct URL strings
- * are what count towards "ambiguous" - the same URL pasted twice is still one reference.
- */
 export function parseAlertUrl (issueBody: string, expectedRepo: string): AlertUrlResult {
-  const matches = [...issueBody.matchAll(ALERT_URL_PATTERN)]
-  const distinctUrls = [...new Set(matches.map(match => match[0]))]
+  const references = [...issueBody.matchAll(URL_PATTERN)].flatMap(match => {
+    const candidate = match[1].replace(/[.,;:!?]+$/, '')
+    if (!URL.canParse(candidate)) {
+      return []
+    }
+    const url = new URL(candidate)
+    const pathMatch = ALERT_PATH_PATTERN.exec(url.pathname)
+    if (url.hostname !== 'github.com' || pathMatch === null) {
+      return []
+    }
+    const [, owner, repo, kind, alertNumber] = pathMatch
+    return [{ candidate, owner, repo, kind, alertNumber }]
+  })
+  const distinctUrls = [...new Set(references.map(reference => reference.candidate))]
 
   if (distinctUrls.length === 0) {
     return { ok: false, reason: 'missing' }
@@ -55,7 +56,7 @@ export function parseAlertUrl (issueBody: string, expectedRepo: string): AlertUr
     return { ok: false, reason: 'ambiguous' }
   }
 
-  const [, owner, repo, kind, alertNumber] = matches[0]
+  const { owner, repo, kind, alertNumber } = references[0]
   if (kind !== 'code-scanning') {
     return { ok: false, reason: 'unsupported' }
   }

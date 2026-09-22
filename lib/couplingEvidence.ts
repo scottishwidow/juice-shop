@@ -23,16 +23,6 @@ function isTestCodePath (path: string): boolean {
   return TEST_CODE_PREFIXES.some(prefix => path.startsWith(prefix))
 }
 
-/**
- * Reads deterministic, mechanical evidence about a scanner finding's target path, via
- * `readBaseRef` (see docs/adr/0002-authorization-inputs-read-from-base-ref.md): whether the
- * challenge-authoring markers are present, and whether the path is test code. This used to
- * mechanically decide the triage verdict (docs/adr/0001-mechanical-coupling-detection.md); it
- * no longer does (docs/adr/0009-taskflow-triage-implementation.md) - the agent investigating
- * the checkout derives the verdict, and is told these markers do not predetermine it. This
- * function now only supplies investigative context to the agent and informational evidence for
- * the verdict payload that `remediate`/`gate` still read.
- */
 export function computeCouplingEvidence (targetPath: string, readBaseRef: BaseRefReader): CouplingEvidence {
   const content = readBaseRef(targetPath) ?? ''
   return {
