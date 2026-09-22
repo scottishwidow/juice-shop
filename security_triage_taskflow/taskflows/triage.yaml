@@ -75,6 +75,4 @@ taskflow:
                 note:
                   type: string
               required: [file, note]
-              additionalProperties: false
         required: [verdict, reasoning, evidence]
-        additionalProperties: false
