@@ -1,0 +1,88 @@
+# SPDX-FileCopyrightText: OWASP Juice Shop contributors
+# SPDX-License-Identifier: MIT
+
+# Invoked by the `remediate` job in .github/workflows/security-triage.yml via
+# lib/scripts/securityTriage/remediate.ts. The deterministic script supplies the alert and the
+# assessment this workflow itself published on the originating issue as globals, and sets
+# CONTAINER_WORKSPACE/LOG_DIR/ANTHROPIC_API_KEY before invoking this taskflow.
+#
+# Unlike triage, the proposed change is not in the captured output: the agent edits the
+# checkout bind-mounted at /workspace, and the wrapper script reads the resulting diff with
+# git after the run. `capture: response` here carries only the agent's account of its own
+# work - what it changed and what it checked - which is published as the agent's claim and
+# never re-run (see docs/adr/0010-taskflow-remediation-implementation.md).
+
+seclab-taskflow-agent:
+  version: "1.0"
+  filetype: taskflow
+model_config: security_triage_taskflow.configs.model_config
+
+globals:
+  alert_number:
+  alert_url:
+  rule_id:
+  path:
+  verdict:
+  assessment:
+
+taskflow:
+  - task:
+      id: fix
+      must_complete: true
+      headless: true
+      max_steps: 80
+      capture: response
+      agents:
+        - security_triage_taskflow.personalities.remediation_engineer
+      model: claude
+      user_prompt: |
+        Code-scanning alert #{{ globals.alert_number }} (rule `{{ globals.rule_id }}`) at
+        `{{ globals.path }}`: {{ globals.alert_url }}
+
+        This workflow's own triage agent assessed the finding as **{{ globals.verdict }}**:
+
+        {{ globals.assessment }}
+
+        A writable checkout of current `master` is mounted at /workspace. Investigate the
+        finding, then edit the source - and any tests that should change with it - so the
+        finding no longer holds. Leave your change in the working tree; do not commit,
+        and do not try to push or open a pull request.
+
+        Your final message must be exactly one JSON object matching this shape, and nothing
+        else - no markdown code fences, no prose before or after it:
+
+        {
+          "summary": "a short paragraph for the pull request describing what you changed and why it fixes the finding",
+          "checks": [
+            { "name": "short name", "command": "the exact command you ran", "result": "passed" | "failed" | "not-run", "detail": "what actually happened, or why you could not run it" }
+          ]
+        }
+
+        Report every check honestly. A check you could not run is `not-run`, a check that
+        failed is `failed`, and an empty `checks` list is the correct answer if you ran
+        none. The pull request is published either way, so there is nothing to gain by
+        overstating a result.
+      outputs:
+        type: object
+        properties:
+          summary:
+            type: string
+            minLength: 1
+          checks:
+            type: array
+            items:
+              type: object
+              properties:
+                name:
+                  type: string
+                command:
+                  type: string
+                result:
+                  type: string
+                  enum: [passed, failed, not-run]
+                detail:
+                  type: string
+              required: [name, command, result, detail]
+              additionalProperties: false
+        required: [summary, checks]
+        additionalProperties: false

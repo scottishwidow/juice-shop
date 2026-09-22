@@ -71,10 +71,7 @@ void describe('fetchAllIssueComments', () => {
     const { impl } = pagedFetch([firstPage, secondPage])
 
     const comments = await fetchAllIssueComments('owner/repo', '9', { accept: 'application/vnd.github+json' }, impl)
-    const selection = selectTrustedVerdict(comments, {
-      alertNumber: 6,
-      baseCommit: '5bc7ce9292a2237e64771a8b2b71b3df730d0800'
-    })
+    const selection = selectTrustedVerdict(comments, { alertNumber: 6 })
 
     assert.equal(selection.selected, true)
   })

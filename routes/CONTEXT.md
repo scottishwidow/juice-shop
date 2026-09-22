@@ -29,25 +29,27 @@ A scanner finding on a handler with neither detected snippet nor detected solve 
 This absence does not establish exploitability, intent, or permission to remediate.
 _Avoid_: Safe finding, free finding
 
-**Patch gate**:
-The check that decides whether a model-authored patch may become a pull request. Runs in a
-checkout the patch author cannot write to, and reads every input to an authorization
-decision from the base ref.
-_Avoid_: Validator, verifier, CI check
-
-**Allow-list**:
-The set of paths a patch may touch. Defaults to the file the scanner finding names, and is
-empty when that file has either coupling. Widened only by a human commit to the base ref.
-_Avoid_: Whitelist, permitted files
+**Excluded path**:
+A path automatic remediation may never change: workflow and CI definitions, credential and
+key material, and the security workflow's own authorization and publishing code. Enforced by
+the credentialed publishing job against the paths a change actually touches. A change
+touching one is rejected in full.
+_Avoid_: Blacklist, forbidden files, allow-list
 
 **Trusted verdict**:
-The triage job's own verdict comment for a named alert, decided against a named base commit.
-The only comment the patch author acts on: it selects the remediation target, and nothing
-else on the issue does, however well formed. A verdict naming a different alert or a moved
-base commit is not trusted for this run.
+The triage job's own verdict comment for a named alert. The only comment the remediation
+agent acts on: it selects the remediation target, and nothing else on the issue does,
+however well formed. The commit it was decided against does not restrict remediation, which
+always starts from current `master`.
 _Avoid_: The verdict comment, the latest verdict
 
-**NOPATCH**:
-The patch gate's rejection outcome. Recorded as a comment on the originating issue; no pull
-request is opened.
-_Avoid_: Failure, rejection, blocked
+**Remediation attempt**:
+One run of the remediation agent, started by a human applying the remediation label. Each
+attempt has its own branch, and produces either a draft pull request or a reported failure.
+Removing and reapplying the label starts another attempt; attempts are not deduplicated.
+_Avoid_: Retry, the remediation
+
+**Reported failure**:
+An attempt that opened no pull request, recorded as a comment naming the stage that stopped
+and linking the workflow run. It blocks nothing and sets no label.
+_Avoid_: NOPATCH, refusal, rejection
