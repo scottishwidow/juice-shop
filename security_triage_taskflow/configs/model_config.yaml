@@ -10,8 +10,12 @@ seclab-taskflow-agent:
   version: "1.0"
   filetype: model_config
 
+# The triage taskflow captures the agent's final message with `capture: response`, which
+# parses the whole message as JSON. Smaller models wrap that object in prose and code
+# fences, which discards the verdict, so keep this on a model that holds the bare-JSON
+# instruction.
 models:
-  claude: claude-haiku-4-5-20251001
+  claude: claude-sonnet-5
 
 model_settings:
   claude:

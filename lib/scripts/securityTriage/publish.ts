@@ -44,7 +44,7 @@ import {
 
 // Must match `models.claude` in security_triage_taskflow/configs/model_config.yaml; the
 // pull request body states it as the AI disclosure. Asserted by modelConfig.unit.test.ts.
-export const MODEL = 'claude-haiku-4-5-20251001'
+export const MODEL = 'claude-sonnet-5'
 
 function requireEnv (name: string): string {
   const value = process.env[name]
