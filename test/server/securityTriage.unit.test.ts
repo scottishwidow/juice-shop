@@ -139,4 +139,32 @@ void describe('security triage workflow', () => {
       }
     }
   })
+  void it('keeps the publishing credential out of the agent process environment', () => {
+    const previous = { ...process.env }
+    process.env.ANTHROPIC_API_KEY = 'test-key'
+    process.env.GH_TOKEN = 'publishing-token'
+    process.env.GITHUB_TOKEN = 'publishing-token'
+    let captured: NodeJS.ProcessEnv = {}
+    const fakeSpawn = ((_command: string, _args: string[], options: { env: NodeJS.ProcessEnv }) => {
+      captured = options.env
+      const artifact = path.join(
+        options.env.XDG_DATA_HOME as string,
+        'seclab-taskflow-agent',
+        'artifacts',
+        'session'
+      )
+      mkdirSync(artifact, { recursive: true })
+      writeFileSync(path.join(artifact, 'manifest.json'), JSON.stringify({ outputs: { investigate: VERDICT.verdict } }))
+      return { pid: 1, output: [null, '', ''], stdout: '', stderr: '', status: 0, signal: null }
+    }) as unknown as typeof spawnSync
+
+    try {
+      assert.deepEqual(runTaskflow(ALERT, 6, fakeSpawn), VERDICT)
+      assert.equal(captured.GH_TOKEN, undefined)
+      assert.equal(captured.GITHUB_TOKEN, undefined)
+      assert.equal(captured.ANTHROPIC_API_KEY, 'test-key')
+    } finally {
+      process.env = previous
+    }
+  })
 })
