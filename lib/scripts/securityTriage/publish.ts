@@ -176,29 +176,60 @@ function publishProposal (
   }
 
   const destination = remediationDestination(repo)
-  dependencies.commitAndPush(branch, remediationCommitMessage(artifact.alert))
 
-  const bodyPath = dependencies.writeBody(buildPrBody({
-    artifact,
-    destination,
-    issueNumber,
-    changedPaths,
-    runLink,
-    model: MODEL
-  }))
-  const prUrl = dependencies.createPullRequest({
-    branch,
-    title: buildPrTitle(artifact.alert),
-    bodyPath,
-    base: destination.base,
-    repo: destination.repo,
-    // Always a draft: no check on this change has been verified by anything, so it is never
-    // presented as ready to merge (docs/agents/issue-tracker.md, PR compliance step 5).
-    draft: true
-  })
+  // Pushing and opening the pull request are the two steps that can fail for reasons outside
+  // the proposed change - a blocked credential, a repository policy, GitHub being down. They
+  // are caught here so the issue still gets a comment: a job that dies with a stack trace
+  // reports nothing to the person who applied the label (issue #32).
+  let branchPushed = false
+  try {
+    dependencies.commitAndPush(branch, remediationCommitMessage(artifact.alert))
+    branchPushed = true
 
-  dependencies.comment(buildSuccessComment({ prUrl, alert: artifact.alert, runLink }))
-  return true
+    const bodyPath = dependencies.writeBody(buildPrBody({
+      artifact,
+      destination,
+      issueNumber,
+      changedPaths,
+      runLink,
+      model: MODEL
+    }))
+    const prUrl = dependencies.createPullRequest({
+      branch,
+      title: buildPrTitle(artifact.alert),
+      bodyPath,
+      base: destination.base,
+      repo: destination.repo,
+      // Always a draft: no check on this change has been verified by anything, so it is never
+      // presented as ready to merge (docs/agents/issue-tracker.md, PR compliance step 5).
+      draft: true
+    })
+
+    dependencies.comment(buildSuccessComment({ prUrl, alert: artifact.alert, runLink }))
+    return true
+  } catch (error: unknown) {
+    console.error(error)
+    return reportFailure(dependencies, runLink, 'publish-error',
+      describePublishError(error, branchPushed ? branch : undefined))
+  }
+}
+
+/**
+ * The reported text is the failing command's stderr where there is one, because that carries
+ * the reason GitHub gave. No credential reaches it: the token is passed to `gh` and `git`
+ * through the environment, never in the arguments an error message repeats.
+ */
+function describePublishError (error: unknown, pushedBranch: string | undefined): string {
+  const stderr = (error as { stderr?: unknown }).stderr
+  const reported = typeof stderr === 'string' && stderr.trim() !== ''
+    ? stderr.trim()
+    : error instanceof Error ? error.message : String(error)
+
+  if (pushedBranch === undefined) {
+    return reported
+  }
+  return `${reported}\n\nBranch \`${pushedBranch}\` is pushed and holds the proposed change. ` +
+    'No pull request was opened for it.'
 }
 
 export function runRemediationPublish (

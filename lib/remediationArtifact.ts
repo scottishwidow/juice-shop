@@ -33,6 +33,7 @@ export type RemediationFailureReason =
   | 'excluded-changes'
   | 'diff-not-applicable'
   | 'missing-artifact'
+  | 'publish-error'
   | 'unexpected-error'
 
 export interface RemediationFailure {
@@ -155,6 +156,9 @@ const FAILURE_DESCRIPTIONS: Record<RemediationFailureReason, string> = {
     '`master`.',
   'missing-artifact': 'The remediation job produced neither a proposed change nor a reason ' +
     'for stopping; it most likely crashed before writing anything.',
+  'publish-error': 'The proposed change was accepted, but publishing it failed. The cause is ' +
+    'in the publishing job itself - its credential, its permissions, or GitHub - and not in ' +
+    'the proposed change.',
   'unexpected-error': 'The remediation job failed with an unexpected error.'
 }
 
