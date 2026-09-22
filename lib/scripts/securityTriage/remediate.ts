@@ -17,11 +17,11 @@
 // contributes an alert number.
 
 import { execFileSync, spawnSync } from 'node:child_process'
-import { existsSync, readdirSync, readFileSync, mkdtempSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import path from 'node:path'
 import process from 'node:process'
 
+import { createTaskflowDataDir } from '../../taskflowDataDir'
 import { fetchIssueCommentsUnauthenticated } from '../../issueComments'
 import { parseAlertUrl, describeAlertUrlFailure } from '../../parseAlertUrl'
 import {
@@ -72,7 +72,7 @@ export function runTaskflow (
   context: RemediationContext,
   spawnTaskflow: typeof spawnSync = spawnSync
 ): TaskflowRunOutcome {
-  const dataDir = mkdtempSync(path.join(tmpdir(), 'security-remediation-taskflow-'))
+  const dataDir = createTaskflowDataDir('security-remediation-taskflow-')
 
   const result = spawnTaskflow('python3', [
     '-m', 'seclab_taskflow_agent',

@@ -4,11 +4,11 @@
  */
 
 import { execFileSync, spawnSync } from 'node:child_process'
-import { readFileSync, mkdtempSync, existsSync, readdirSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { readFileSync, existsSync, readdirSync } from 'node:fs'
 import path from 'node:path'
 import process from 'node:process'
 
+import { createTaskflowDataDir } from '../../taskflowDataDir'
 import { parseAlertUrl, describeAlertUrlFailure } from '../../parseAlertUrl'
 import { computeCouplingEvidence } from '../../couplingEvidence'
 import { encodeVerdictPayload, type VerdictPayload } from '../../verdictPayload'
@@ -94,7 +94,7 @@ export function runTaskflow (
   alertNumber: number,
   spawnTaskflow: typeof spawnSync = spawnSync
 ): TaskflowRunOutcome {
-  const dataDir = mkdtempSync(path.join(tmpdir(), 'security-triage-taskflow-'))
+  const dataDir = createTaskflowDataDir('security-triage-taskflow-')
 
   const result = spawnTaskflow('python3', [
     '-m', 'seclab_taskflow_agent',
