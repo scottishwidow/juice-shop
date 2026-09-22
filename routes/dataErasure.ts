@@ -100,12 +100,14 @@ router.post('/', (req: Request<Record<string, unknown>, Record<string, unknown>,
         _logo_: utils.extractFilename(config.get('application.logo'))
       }
 
-      if (req.body.layout && utils.isChallengeEnabled(challenges.lfrChallenge)) {
-        const filePath: string = path.resolve(req.body.layout).toLowerCase()
+      const layout = req.body.layout
+
+      if (layout && utils.isChallengeEnabled(challenges.lfrChallenge)) {
+        const filePath: string = path.resolve(layout).toLowerCase()
         const isForbiddenFile: boolean = (filePath.includes('ftp') || filePath.includes('ctf.key') || filePath.includes('encryptionkeys'))
         if (!isForbiddenFile) {
           res.render('dataErasureResult', {
-            ...req.body,
+            layout,
             ...themeVars
           }, (error, html) => {
             if (!html || error) {
@@ -121,7 +123,6 @@ router.post('/', (req: Request<Record<string, unknown>, Record<string, unknown>,
         }
       } else {
         res.render('dataErasureResult', {
-          ...req.body,
           ...themeVars
         })
       }
