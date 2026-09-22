@@ -1,5 +1,5 @@
 ---
-status: accepted
+status: superseded by ADR-0007
 ---
 
 # The SecLab TaskFlow Agent runner is not adopted; the security-triage workflow stays bespoke

@@ -25,8 +25,8 @@ as solved. Fails silently: the challenge becomes unreachable and no check report
 _Avoid_: Challenge coupling, solve hook
 
 **Uncoupled finding**:
-A scanner finding on a handler with neither snippet nor solve coupling. Remediable without a
-preceding human decision.
+A scanner finding on a handler with neither detected snippet nor detected solve coupling.
+This absence does not establish exploitability, intent, or permission to remediate.
 _Avoid_: Safe finding, free finding
 
 **Patch gate**:
