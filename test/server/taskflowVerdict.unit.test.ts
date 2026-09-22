@@ -27,6 +27,18 @@ void describe('parseTaskflowVerdict', () => {
     }
   })
 
+  void it('accepts an evidence item carrying an optional line reference', () => {
+    const result = parseTaskflowVerdict({ ...VALID, evidence: [{ file: 'routes/keyServer.ts', lines: '9-19', note: 'Unconfined path.resolve before sendFile.' }] })
+
+    assert.equal(result.ok, true)
+  })
+
+  void it('returns "malformed-output" when a line reference is not a string', () => {
+    const result = parseTaskflowVerdict({ ...VALID, evidence: [{ file: 'routes/keyServer.ts', lines: 19, note: 'Unconfined path.resolve before sendFile.' }] })
+
+    assert.deepEqual(result, { ok: false, reason: 'malformed-output' })
+  })
+
   void it('rejects an empty evidence array', () => {
     const result = parseTaskflowVerdict({ ...VALID, evidence: [] })
 

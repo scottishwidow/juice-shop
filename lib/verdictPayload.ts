@@ -11,6 +11,7 @@
 
 export interface VerdictEvidenceItem {
   file: string
+  lines?: string
   note: string
 }
 
@@ -37,6 +38,9 @@ export function isValidEvidenceItem (value: unknown): value is VerdictEvidenceIt
     return false
   }
   const candidate = value as Record<string, unknown>
+  if (candidate.lines !== undefined && typeof candidate.lines !== 'string') {
+    return false
+  }
   return typeof candidate.file === 'string' && typeof candidate.note === 'string'
 }
 

@@ -174,7 +174,10 @@ function verdictSummary (alert: AlertDetail, alertNumber: number, base: string, 
 }
 
 function evidenceList (verdict: TaskflowVerdict): string {
-  return ['', '**Evidence:**', ...verdict.evidence.map(item => `- \`${item.file}\`: ${item.note}`)].join('\n')
+  return ['', '**Evidence:**', ...verdict.evidence.map(item => {
+    const location = item.lines === undefined ? `\`${item.file}\`` : `\`${item.file}\` (${item.lines})`
+    return `- ${location}: ${item.note}`
+  })].join('\n')
 }
 
 export interface SecurityTriageInput {
