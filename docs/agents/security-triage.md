@@ -35,6 +35,24 @@ read the same alert URL the human pasted for triage; no second reference is need
 Removing and reapplying `sec:ready-for-remediation` starts a fresh attempt. Attempts are not
 deduplicated or tracked, and a failed attempt sets no label that blocks the next one.
 
+## Running it
+
+1. Open the repository's code-scanning alerts and copy the URL of one alert
+   (`https://github.com/<owner>/<repo>/security/code-scanning/<n>`).
+2. Create an issue that contains that URL. No other detail is read from the body.
+3. Apply `sec:needs-triage`. The `triage` job starts.
+4. Read the verdict comment. Triage stops there, whatever the verdict is.
+5. Apply `sec:ready-for-remediation` to authorize a fix attempt. The `remediate` and
+   `publish` jobs start.
+6. Review the draft pull request. Merging it is a human decision and closes the issue.
+
+Each label is applied by a human. Step 5 is optional: a `not-applicable` or `inconclusive`
+verdict can be the end of the run. To retry either half, remove and reapply its label.
+
+To check the taskflow configuration without a model call or a secret, push a change under any
+path in the workflow's `taskflow-paths` list; the `lint-taskflow` job lints both taskflows and
+every resource they reference.
+
 ## Jobs
 
 `triage`/`remediate`/`publish` are triggered by `on: issues: types: [labeled]`.
@@ -197,15 +215,21 @@ No failure is fabricated into an empty pull request, and no failure blocks the n
 there is no terminal refusal label. A human removes and reapplies
 `sec:ready-for-remediation` to try again.
 
-## Remediation target
+## Demonstrated run
 
-CodeQL alert #6, `js/path-injection`, `routes/keyServer.ts:14`, is the workflow's
-demonstration target. It is covered by an existing unit test asserting traversal is rejected
-rather than sanitized (`test/server/keyServer.unit.test.ts`) and by an API test asserting the
-exact string `Error: File names cannot contain forward slashes!`
-(`test/api/file-serving.test.ts`), so a reviewer can see quickly whether a proposed fix
-changed behavior or only its tests.
+The workflow ran end to end on CodeQL alert #16, `js/template-object-injection`,
+`routes/dataErasure.ts`, on issue #42. Triage read the handler, `server.ts` and the `hbs`
+engine source, and returned `confirmed`. After a separate human `sec:ready-for-remediation`,
+remediation replaced the `...req.body` spreads into the render-options object with an explicit
+`layout` field, and published draft pull request #43.
 
-The preparatory regression patch, its baseline transcript, and the gate that applied them are
-gone with the bespoke implementation: the agent now writes whatever test changes its fix
-needs, and those changes are part of the reviewed pull request.
+The agent's container has no Node runtime, so the pull request reports every application check
+as `not run`. A maintainer ran them afterwards against the proposed diff: the eight
+`test/api/erasure-request.test.ts` cases pass, including the three `layout` traversal cases
+that cover the Local File Read challenge; ESLint is clean; `npm run rsn` reports no codefix
+drift.
+
+Any same-repository code-scanning alert is a valid target. The preparatory regression patch,
+its baseline transcript, and the gate that applied them are gone with the bespoke
+implementation: the agent now writes whatever test changes its fix needs, and those changes
+are part of the reviewed pull request.
