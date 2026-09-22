@@ -1,0 +1,77 @@
+# SPDX-FileCopyrightText: OWASP Juice Shop contributors
+# SPDX-License-Identifier: MIT
+
+# Invoked by the `triage` job in .github/workflows/security-triage.yml via
+# lib/scripts/securityTriage/triage.ts. The deterministic script supplies the alert's rule,
+# path and scanner message as globals (already fetched from the code-scanning API, never
+# trusted from the issue body) and sets CONTAINER_WORKSPACE/LOG_DIR/ANTHROPIC_API_KEY as
+# process environment variables before invoking this taskflow.
+#
+# The `investigate` task's structured verdict is captured via `capture: response` (the agent's
+# final message text, strictly parsed as JSON - see docs/adr/0009-taskflow-triage-
+# implementation.md) rather than `tool_result` (the container-shell's last raw command output),
+# and is read back by the wrapper script from the session's own manifest.json artifact
+# (lib/taskflowVerdict.ts), never by templating agent output into a further shell step.
+
+seclab-taskflow-agent:
+  version: "1.0"
+  filetype: taskflow
+model_config: security_triage_taskflow.configs.model_config
+
+globals:
+  alert_number:
+  rule_id:
+  path:
+  message:
+
+taskflow:
+  - task:
+      id: investigate
+      must_complete: true
+      headless: true
+      max_steps: 40
+      capture: response
+      agents:
+        - security_triage_taskflow.personalities.triage_investigator
+      model: claude
+      user_prompt: |
+        Code-scanning alert #{{ globals.alert_number }} (rule `{{ globals.rule_id }}`) at
+        `{{ globals.path }}`.
+
+        Scanner message: {{ globals.message }}
+
+        The repository is mounted read-only for your investigation at /workspace. Investigate
+        the flagged location and the code that reaches it, then report your verdict.
+
+        Your final message must be exactly one JSON object matching this shape, and nothing
+        else - no markdown code fences, no prose before or after it:
+
+        {
+          "verdict": "confirmed" | "not-applicable" | "inconclusive",
+          "reasoning": "one or two paragraphs explaining the verdict for a maintainer",
+          "evidence": [
+            { "file": "path/you/read", "note": "what you found there and why it matters" }
+          ]
+        }
+      outputs:
+        type: object
+        properties:
+          verdict:
+            type: string
+            enum: [confirmed, not-applicable, inconclusive]
+          reasoning:
+            type: string
+            minLength: 1
+          evidence:
+            type: array
+            items:
+              type: object
+              properties:
+                file:
+                  type: string
+                note:
+                  type: string
+              required: [file, note]
+              additionalProperties: false
+        required: [verdict, reasoning, evidence]
+        additionalProperties: false

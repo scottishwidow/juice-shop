@@ -64,4 +64,30 @@ void describe('encodeVerdictPayload / decodeVerdictPayload', () => {
 
     assert.equal(decodeVerdictPayload(body), undefined)
   })
+
+  void it('decodes a payload without the optional reasoning/evidence fields (pre-TaskFlow shape)', () => {
+    // remediate/gate (unchanged, issue #31) read payloads through this same decoder; a payload
+    // written before reasoning/evidence existed must keep decoding (docs/adr/0009-taskflow-
+    // triage-implementation.md).
+    const body = `<!-- security-triage:verdict-payload\n${JSON.stringify(PAYLOAD)}\n-->`
+
+    assert.deepEqual(decodeVerdictPayload(body), PAYLOAD)
+  })
+
+  void it('round-trips a payload that includes reasoning and evidence', () => {
+    const withEvidence = {
+      ...PAYLOAD,
+      reasoning: 'The handler resolves the path parameter without normalising it first.',
+      evidence: [{ file: 'routes/keyServer.ts', note: 'No path traversal check before sendFile.' }]
+    }
+    const body = `<!-- security-triage:verdict-payload\n${JSON.stringify(withEvidence)}\n-->`
+
+    assert.deepEqual(decodeVerdictPayload(body), withEvidence)
+  })
+
+  void it('returns undefined when an evidence item is malformed', () => {
+    const body = `<!-- security-triage:verdict-payload\n${JSON.stringify({ ...PAYLOAD, evidence: [{ file: 'x.ts' }] })}\n-->`
+
+    assert.equal(decodeVerdictPayload(body), undefined)
+  })
 })

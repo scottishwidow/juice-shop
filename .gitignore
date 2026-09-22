@@ -71,3 +71,7 @@ config/*.yml
 # Misc
 .playwright-mcp/
 cypress/screenshots/
+
+# Python (security_triage_taskflow/)
+__pycache__/
+*.pyc
