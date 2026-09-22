@@ -313,7 +313,7 @@ void describe('security remediation publishing', () => {
     assert.equal(pullRequest.draft, true)
     assert.equal(pullRequest.repo, REPO)
     assert.match(pullRequest.title, /remediate js\/path-injection at routes\/keyServer\.ts \(alert #6\)/)
-    assert.match(pullRequest.body, new RegExp(ALERT_URL.replace(/\//g, '\\/')))
+    assert.ok(pullRequest.body.includes(ALERT_URL))
     assert.match(pullRequest.body, /Closes #31\./)
     assert.match(pullRequest.body, /`test\/server\/keyServer\.unit\.test\.ts`/)
     assert.match(pullRequest.body, /\*\*failed\*\*/)

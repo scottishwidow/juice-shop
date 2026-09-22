@@ -17,7 +17,7 @@
 // request; an attempt that produced nothing never becomes an empty pull request.
 
 import { execFileSync } from 'node:child_process'
-import { writeFileSync } from 'node:fs'
+import { mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
@@ -125,7 +125,9 @@ function defaultDependencies (input: PublishInput): PublishDependencies {
       '--body-file', options.bodyPath
     ]).trim(),
     writeBody: body => {
-      const bodyPath = path.join(tmpdir(), `remediation-pr-${issueNumber}.md`)
+      // A fresh private directory per run, rather than a predictable name in the shared temp
+      // directory: nothing else can pre-create or swap the file `gh --body-file` then reads.
+      const bodyPath = path.join(mkdtempSync(path.join(tmpdir(), 'remediation-pr-')), 'body.md')
       writeFileSync(bodyPath, body)
       return bodyPath
     },
