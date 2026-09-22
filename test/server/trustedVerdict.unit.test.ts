@@ -11,7 +11,7 @@ import { encodeVerdictPayload, type VerdictPayload } from '../../lib/verdictPayl
 
 const BASE_COMMIT = '5bc7ce9292a2237e64771a8b2b71b3df730d0800'
 const OTHER_COMMIT = '0000000000000000000000000000000000000000'
-const EXPECTED = { alertNumber: 6, baseCommit: BASE_COMMIT }
+const EXPECTED = { alertNumber: 6 }
 
 function verdictBody (overrides: Partial<VerdictPayload> = {}): string {
   const payload: VerdictPayload = {
@@ -101,10 +101,10 @@ void describe('selectTrustedVerdict', () => {
     assert.deepEqual(selection, { selected: false, reason: 'alert-number-mismatch' })
   })
 
-  void it('refuses a trusted verdict decided against a different base commit', () => {
+  void it('accepts a trusted verdict decided against an older base commit', () => {
     const selection = selectTrustedVerdict([fromTriage(verdictBody({ baseCommit: OTHER_COMMIT }))], EXPECTED)
 
-    assert.deepEqual(selection, { selected: false, reason: 'base-commit-mismatch' })
+    assert.equal(selection.selected, true)
   })
 
   void it('refuses when no verdict comment is present at all', () => {

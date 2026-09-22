@@ -1,8 +1,12 @@
 ---
-status: accepted
+status: partially superseded by ADR-0010
 ---
 
 # The patch author acts only on a trusted verdict, pinned to one base commit
+
+**ADR-0010 supersedes the base-commit pinning and the allow-list described below. The rule
+that only the triage job's own verdict comment selects anything survives and is still
+implemented in `lib/trustedVerdict.ts`.**
 
 The `remediate` job holds no credentials (ADR-0002), so it reads the triage verdict from an
 unauthenticated GET of the issue's public comments. Anyone who can comment on a public issue

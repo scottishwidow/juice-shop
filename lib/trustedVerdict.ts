@@ -19,7 +19,6 @@ export interface IssueComment {
 
 export interface ExpectedVerdict {
   alertNumber: number
-  baseCommit: string
 }
 
 export type VerdictRefusalReason =
@@ -27,7 +26,6 @@ export type VerdictRefusalReason =
   | 'untrusted-verdict-author'
   | 'malformed-verdict-comment'
   | 'alert-number-mismatch'
-  | 'base-commit-mismatch'
 
 export type VerdictSelection =
   | { selected: true, verdict: VerdictPayload }
@@ -37,8 +35,7 @@ const REFUSAL_DESCRIPTIONS: Record<VerdictRefusalReason, string> = {
   'no-verdict-comment': 'No triage verdict comment was found on this issue; triage must run first.',
   'untrusted-verdict-author': `A verdict comment is present but was not posted by ${TRIAGE_AUTHOR_LOGIN}; only the triage job's own verdict selects a remediation target.`,
   'malformed-verdict-comment': 'The triage verdict comment is not in the expected structured format.',
-  'alert-number-mismatch': 'The triage verdict on this issue is for a different alert than the one the issue body names.',
-  'base-commit-mismatch': 'The triage verdict was decided against a different base commit than this job checked out; re-run triage.'
+  'alert-number-mismatch': 'The triage verdict on this issue is for a different alert than the one the issue body names.'
 }
 
 /** A one-sentence explanation of why no verdict was accepted, for the job log. */
@@ -47,12 +44,16 @@ export function describeVerdictRefusal (reason: VerdictRefusalReason): string {
 }
 
 /**
- * Selects the verdict the patch author works from. The job reads public issue comments with
- * no credentials, so anyone can write a comment it sees: the selection therefore accepts
- * only a comment posted by the triage job's own identity, and only one bound to the alert
- * the issue body names and to the base commit this job checked out (ADR-0005). Everything
- * downstream - the file read, the brief, the artifact - follows from this choice, so it is
- * the only place trust is granted.
+ * Selects the assessment the remediation agent works from. The job reads public issue
+ * comments with no credentials, so anyone can write a comment it sees: the selection
+ * therefore accepts only a comment posted by the triage job's own identity, and only one
+ * bound to the alert the issue body names. That is the whole of the handoff, so it is the
+ * only place trust is granted.
+ *
+ * The commit the verdict was decided against is deliberately not compared with the commit
+ * remediation checked out: remediation always starts from current `master`, and a push
+ * landing between triage and the remediation label must not force a re-triage (issue #31;
+ * see docs/adr/0010-taskflow-remediation-implementation.md).
  */
 export function selectTrustedVerdict (comments: IssueComment[], expected: ExpectedVerdict): VerdictSelection {
   const verdictComments = comments.filter(comment =>
@@ -74,9 +75,6 @@ export function selectTrustedVerdict (comments: IssueComment[], expected: Expect
   }
   if (verdict.alertNumber !== expected.alertNumber) {
     return { selected: false, reason: 'alert-number-mismatch' }
-  }
-  if (verdict.baseCommit !== expected.baseCommit) {
-    return { selected: false, reason: 'base-commit-mismatch' }
   }
 
   return { selected: true, verdict }

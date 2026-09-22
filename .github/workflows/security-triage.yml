@@ -9,7 +9,13 @@ on:
       - 'lib/couplingEvidence.ts'
       - 'lib/verdictPayload.ts'
       - 'lib/taskflowVerdict.ts'
-      - 'lib/scripts/securityTriage/triage.ts'
+      - 'lib/trustedVerdict.ts'
+      - 'lib/issueComments.ts'
+      - 'lib/excludedPaths.ts'
+      - 'lib/remediationArtifact.ts'
+      - 'lib/remediationPr.ts'
+      - 'lib/remediationProposal.ts'
+      - 'lib/scripts/securityTriage/**'
       - '.github/workflows/security-triage.yml'
   pull_request:
     paths: *taskflow-paths
@@ -39,12 +45,17 @@ jobs:
         run: |
           pip install "seclab-taskflow-agent==${{ env.TASKFLOW_AGENT_VERSION }}" \
             "seclab-taskflows @ git+https://github.com/GitHubSecurityLab/seclab-taskflows.git@${{ env.TASKFLOW_TOOLS_COMMIT }}"
-      - name: "Lint triage taskflow configuration"
+      - name: "Lint taskflow configuration"
+        # Lints both taskflows and every resource they reference - personalities, toolbox and
+        # model config - offline, with no secrets and no model call.
         env:
           PYTHONPATH: ${{ github.workspace }}
         run: |
           python3 -m seclab_taskflow_agent --lint \
             -t security_triage_taskflow.taskflows.triage \
+            -m security_triage_taskflow.configs.model_config
+          python3 -m seclab_taskflow_agent --lint \
+            -t security_triage_taskflow.taskflows.remediate \
             -m security_triage_taskflow.configs.model_config
   triage:
     # Only a human applying sec:needs-triage starts this job; no other label or event does.
@@ -87,13 +98,18 @@ jobs:
         run: npx tsx lib/scripts/securityTriage/triage.ts
   remediate:
     # Only a human applying sec:ready-for-remediation starts this job; no other label or event
-    # does. This job declares no permissions of its own (issue #7, ADR-0002): it holds no
-    # write credential of any kind, and its checkout does not persist one either.
+    # does. Removing and reapplying that label starts a fresh attempt, with no deduplication
+    # and no attempt tracking (issue #29, user stories 24-25).
+    #
+    # This job runs the model and holds no write credential of any kind: `permissions: {}`,
+    # and a checkout that persists none either. The agent edits this checkout through the
+    # container-shell toolbox; the diff it leaves behind travels to `publish` as an artifact,
+    # which is the only thing that crosses the credential boundary.
     if: github.event.label.name == 'sec:ready-for-remediation'
     permissions: {}
     runs-on: ubuntu-latest
     steps:
-      - name: "Check out the trusted base ref"
+      - name: "Check out current master"
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 #v7.0.1
         with:
           ref: master
@@ -104,44 +120,48 @@ jobs:
           node-version: 24
       - name: "Install application minimalistically"
         run: npm install --ignore-scripts
-      - name: "Run remediate"
+      - name: "Use Python"
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 #v6.3.0
+        with:
+          python-version: "3.12"
+      - name: "Install TaskFlow runner and companion tools"
+        run: |
+          pip install "seclab-taskflow-agent==${{ env.TASKFLOW_AGENT_VERSION }}" \
+            "seclab-taskflows @ git+https://github.com/GitHubSecurityLab/seclab-taskflows.git@${{ env.TASKFLOW_TOOLS_COMMIT }}"
+      - name: "Run remediation agent"
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           ISSUE_NUMBER: ${{ github.event.issue.number }}
           ISSUE_BODY: ${{ github.event.issue.body }}
         run: npx tsx lib/scripts/securityTriage/remediate.ts
-      - name: "Upload proposed patch"
-        # Runs even if "Run remediate" failed: a categorized refusal (or the catch-all
-        # `unexpected-error`) is still written to patch-author-output/refusal.json (issue #15),
-        # and the gate job below must see it to report the refusal instead of running silent.
+      - name: "Upload proposed change"
+        # Runs even if the step above failed: a categorized failure (or the catch-all
+        # `unexpected-error`) is still written to remediation-output/failure.json, and the
+        # publish job must see it to report the failure instead of running silent.
         if: always()
         uses: actions/upload-artifact@6f51ac03b9356f520e9adb1b1b7802705f340c2b #v4.5.0
         with:
-          name: proposed-patch-${{ github.event.issue.number }}
-          path: patch-author-output/
-  gate:
-    # Runs after `remediate`, in the same labelling event, so a diff is validated as soon as
-    # it is proposed. This job holds the workflow's write credentials (contents: write,
-    # pull-requests: write, per docs/agents/security-triage.md) and makes no model call. Its
-    # checkout of the base ref is the patch author's own job, which the author cannot write
-    # to, so a patch cannot influence its own validation. Issue #8 implements only the
-    # refusal path; applying an authorized diff, running checks and opening a pull request
-    # are issue #9.
+          name: remediation-${{ github.event.issue.number }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: remediation-output/
+  publish:
+    # Holds the workflow's write credentials and makes no model call. It installs
+    # dependencies from `master` before it reads the proposed change, and never runs a script,
+    # test or build from the proposed tree - so a proposed change cannot execute with, or
+    # change, the authority that publishes it. Exclusions (lib/excludedPaths.ts) are enforced
+    # here, against the paths the diff actually touches.
     #
-    # Runs even if `remediate` failed (`always()`): the patch author holds no credential and
-    # cannot post its own refusal, so this job - the only one in the labelling event with
-    # `issues: write` - must still run to report it (issue #15). The label guard is unchanged,
-    # so an unrelated labelling event still runs neither job.
+    # Runs even if `remediate` failed (`always()`): that job holds no credential and cannot
+    # report its own failure, so this job must still run to comment it. The label guard is
+    # unchanged, so an unrelated labelling event still runs neither job.
     needs: remediate
     if: always() && github.event.label.name == 'sec:ready-for-remediation'
     permissions:
       contents: write
       pull-requests: write
       issues: write
-      security-events: read
     runs-on: ubuntu-latest
     steps:
-      - name: "Check out the trusted base ref"
+      - name: "Check out current master"
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 #v7.0.1
         with:
           ref: master
@@ -151,18 +171,17 @@ jobs:
           node-version: 24
       - name: "Install application minimalistically"
         run: npm install --ignore-scripts
-      - name: "Download proposed patch"
-        # continue-on-error covers the rare case where `remediate` crashed before writing
-        # anything at all, so no artifact exists to download. "Run gate" below still reports
-        # that to the maintainer instead of running with stale or missing input.
+      - name: "Download proposed change"
+        # continue-on-error covers the case where `remediate` crashed before writing anything
+        # at all, so no artifact exists. "Publish proposed change" reports that to the
+        # maintainer rather than running with missing input.
         continue-on-error: true
         uses: actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16 #v4.1.8
         with:
-          name: proposed-patch-${{ github.event.issue.number }}
-          path: patch-author-output/
-      - name: "Run gate"
+          name: remediation-${{ github.event.issue.number }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: remediation-output/
+      - name: "Publish proposed change"
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           ISSUE_NUMBER: ${{ github.event.issue.number }}
-          ISSUE_BODY: ${{ github.event.issue.body }}
-        run: npx tsx lib/scripts/securityTriage/gate.ts
+        run: npx tsx lib/scripts/securityTriage/publish.ts
