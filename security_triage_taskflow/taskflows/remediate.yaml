@@ -83,6 +83,4 @@ taskflow:
                 detail:
                   type: string
               required: [name, command, result, detail]
-              additionalProperties: false
         required: [summary, checks]
-        additionalProperties: false
