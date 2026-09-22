@@ -50,7 +50,7 @@ taskflow:
           "verdict": "confirmed" | "not-applicable" | "inconclusive",
           "reasoning": "one or two paragraphs explaining the verdict for a maintainer",
           "evidence": [
-            { "file": "path/you/read", "note": "what you found there and why it matters" }
+            { "file": "path/you/read", "lines": "optional line or range, e.g. 9-19", "note": "what you found there and why it matters" }
           ]
         }
       outputs:
@@ -69,6 +69,8 @@ taskflow:
               type: object
               properties:
                 file:
+                  type: string
+                lines:
                   type: string
                 note:
                   type: string
