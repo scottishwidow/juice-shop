@@ -111,6 +111,8 @@ interface PublishHarnessOverrides {
   applies?: boolean
   changedPaths?: string[]
   input?: Partial<PublishInput>
+  pushFails?: unknown
+  pullRequestFails?: unknown
 }
 
 function proposalArtifact (proposal: RemediationProposal = PROPOSAL): RemediationArtifact {
@@ -138,12 +140,20 @@ function publishHarness (overrides: PublishHarnessOverrides = {}) {
     applyOnBranch: () => overrides.applies ?? true,
     stagedPaths: () => overrides.changedPaths ?? ['routes/keyServer.ts', 'test/server/keyServer.unit.test.ts'],
     discard: () => { discarded = true },
-    commitAndPush: branch => pushed.push(branch),
+    commitAndPush: branch => {
+      if (overrides.pushFails !== undefined) {
+        throw overrides.pushFails
+      }
+      pushed.push(branch)
+    },
     writeBody: proposedBody => {
       body = proposedBody
       return '/tmp/pr-body.md'
     },
     createPullRequest: options => {
+      if (overrides.pullRequestFails !== undefined) {
+        throw overrides.pullRequestFails
+      }
       pullRequests.push({ branch: options.branch, base: options.base, repo: options.repo, title: options.title, body, draft: options.draft })
       return `https://github.com/${REPO}/pull/77`
     },
@@ -382,5 +392,29 @@ void describe('security remediation publishing', () => {
     assert.deepEqual(pullRequests, [])
     assert.equal(discarded, true)
     assert.match(comments[0], /no-change/)
+  })
+
+  void it('reports a refused pull request and says the pushed branch still holds the change', () => {
+    const refusal = Object.assign(new Error('Command failed: gh pr create'), {
+      stderr: 'pull request create failed: GraphQL: GitHub Actions is not permitted to create or approve pull requests (createPullRequest)\n'
+    })
+    const { published, pushed, comments } = publishHarness({ pullRequestFails: refusal })
+
+    assert.equal(published, false)
+    assert.deepEqual(pushed, ['security/alert-6-run-1234-1'])
+    assert.match(comments[0], /publish-error/)
+    assert.match(comments[0], /not permitted to create or approve pull requests/)
+    assert.match(comments[0], /security\/alert-6-run-1234-1/)
+  })
+
+  void it('reports a failed push without claiming a branch was pushed', () => {
+    const { published, pushed, pullRequests, comments } = publishHarness({ pushFails: new Error('remote rejected') })
+
+    assert.equal(published, false)
+    assert.deepEqual(pushed, [])
+    assert.deepEqual(pullRequests, [])
+    assert.match(comments[0], /publish-error/)
+    assert.match(comments[0], /remote rejected/)
+    assert.doesNotMatch(comments[0], /is pushed and holds/)
   })
 })
