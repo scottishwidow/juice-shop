@@ -1,0 +1,51 @@
+# SPDX-FileCopyrightText: GitHub, Inc.
+# SPDX-License-Identifier: MIT
+
+# Vendored from GitHubSecurityLab/seclab-taskflows
+# (src/seclab_taskflows/toolboxes/container_shell_source_access.yaml, commit b69171a) with one
+# change: CONTAINER_IMAGE is pinned to the digest resolved for :latest at the time this file was
+# vendored, rather than tracking the floating tag. See docs/adr/0009-taskflow-triage-implementation.md.
+#
+# LOG_DIR and CONTAINER_WORKSPACE are required environment variables here (the agent's env()
+# template function defaults to required=True); the triage job that invokes this taskflow must
+# set both before running.
+
+seclab-taskflow-agent:
+  filetype: toolbox
+  version: "1.0"
+
+server_params:
+  kind: stdio
+  command: python
+  args: ["-m", "seclab_taskflows.mcp_servers.container_shell"]
+  env:
+    CONTAINER_IMAGE: "ghcr.io/githubsecuritylab/seclab-shell-source-access@sha256:8c503593ce1539669a9bc28b459b5e444f9a760672b50f6ce111206e0027a19c"
+    CONTAINER_WORKSPACE: "{{ env('CONTAINER_WORKSPACE') }}"
+    CONTAINER_TIMEOUT: "{{ env('CONTAINER_TIMEOUT', '60') }}"
+    CONTAINER_PERSIST: "{{ env('CONTAINER_PERSIST', 'true') }}"
+    CONTAINER_PERSIST_KEY: "{{ env('CONTAINER_PERSIST_KEY', required=False) }}"
+    CONTAINER_NETWORK: "none"
+    LOG_DIR: "{{ env('LOG_DIR') }}"
+
+server_prompt: |
+  ## Container Shell (Source Access)
+  You have access to an isolated Docker container for source access and code exploration.
+  The configured source directory is mounted at /workspace. All tools run inside
+  the container, and the container is persistent across MCP server restarts by default.
+
+  Available tools:
+  - ripgrep (rg)  — Fast regex search: `rg <pattern> /workspace`
+  - fd            — Fast file finder: `fd -e py /workspace`
+  - tree          — Directory structure: `tree /workspace`
+  - ctags         — Multi-language tag/symbol index (`ctags -R .`)
+  - global (gtags/global) — Source code cross-reference: `gtags` to index, `global -r <sym>` to find callers
+  - cscope        — C/C++ cross-reference browser (`cscope -R -b` to build, `cscope -R -L -2 <sym>` for callers)
+  - git           — Version control and source history inspection
+  - grep, sed, awk, find — Standard code exploration
+
+  Typical source access workflow:
+  1. `tree /workspace | head -80` — inspect the repository layout
+  2. `fd . /workspace | head -100` — list files quickly
+  3. `rg -n "<pattern>" /workspace` — search source text
+  4. `cd /workspace && ctags -R --fields=+ne .` — build a symbol index
+  5. `cd /workspace && gtags --compact && global -x <symbol>` — cross-reference symbols

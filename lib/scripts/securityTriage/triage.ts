@@ -3,29 +3,18 @@
  * SPDX-License-Identifier: MIT
  */
 
-// CLI script run by the `triage` job in .github/workflows/security-triage.yml.
-//
-// Reads the alert number a human transcribed into the labelled issue, fetches the finding
-// from the code-scanning API, and decides the verdict mechanically via `determineVerdict`
-// against the checked-out base ref. The model call drafts only the prose explanation of a
-// verdict that is already decided; it receives no tools, so its only possible output is the
-// text of that paragraph. The job's write permission is comment creation only
-// (docs/agents/security-triage.md, docs/adr/0004-triage-model-call-has-no-tools.md).
-//
-// The workflow itself performs every write (the comment and the label swap), with the
-// `issues: write` permission the job holds; the model performs none.
-
-import { execFileSync } from 'node:child_process'
-import { readFileSync } from 'node:fs'
+import { execFileSync, spawnSync } from 'node:child_process'
+import { readFileSync, mkdtempSync, existsSync, readdirSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import path from 'node:path'
 import process from 'node:process'
 
-import { determineVerdict, type TriageResult } from '../../triageVerdict'
-import { parseAlertNumber } from '../../parseAlertNumber'
-import { encodeVerdictPayload } from '../../verdictPayload'
+import { parseAlertUrl, describeAlertUrlFailure } from '../../parseAlertUrl'
+import { computeCouplingEvidence } from '../../couplingEvidence'
+import { encodeVerdictPayload, type VerdictPayload } from '../../verdictPayload'
+import { parseTaskflowVerdict, describeTaskflowVerdictFailure, type TaskflowVerdict } from '../../taskflowVerdict'
 
-const ANTHROPIC_MODEL = 'claude-sonnet-5'
-
-interface AlertDetail {
+export interface AlertDetail {
   ruleId: string
   path: string
   message: string
@@ -41,6 +30,12 @@ function requireEnv (name: string): string {
 
 function gh (args: string[]): string {
   return execFileSync('gh', args, { encoding: 'utf8' })
+}
+
+function workflowRunLink (repo: string): string {
+  const serverUrl = process.env.GITHUB_SERVER_URL ?? 'https://github.com'
+  const runId = process.env.GITHUB_RUN_ID
+  return runId === undefined ? '' : `${serverUrl}/${repo}/actions/runs/${runId}`
 }
 
 function fetchAlertDetail (repo: string, alertNumber: number): AlertDetail {
@@ -64,113 +59,225 @@ function readBaseRefFile (path: string): string | undefined {
   }
 }
 
-async function draftReasoning (alert: AlertDetail, result: TriageResult): Promise<string> {
-  const apiKey = requireEnv('ANTHROPIC_API_KEY')
-  const brief = [
-    `Rule: ${alert.ruleId}`,
-    `Path: ${alert.path}`,
-    `Scanner message: ${alert.message}`,
-    `Verdict (already decided mechanically; do not restate a different one): ${result.verdict}`,
-    `Snippet coupling: ${result.coupling.snippetCoupled}`,
-    `Solve coupling: ${result.coupling.solveCoupled}`,
-    `Test code: ${result.isTestCode}`
-  ].join('\n')
-
-  const response = await fetch('https://api.anthropic.com/v1/messages', {
-    method: 'POST',
-    headers: {
-      'content-type': 'application/json',
-      'x-api-key': apiKey,
-      'anthropic-version': '2023-06-01'
-    },
-    body: JSON.stringify({
-      model: ANTHROPIC_MODEL,
-      max_tokens: 500,
-      system: [
-        'You write one short paragraph of prose for a security maintainer, explaining a triage',
-        'verdict that has already been decided mechanically by the workflow. State the verdict',
-        'and both coupling findings by name. Never claim a check passed, never grant a policy',
-        'exception, and never state a verdict different from the one you were given. You have no',
-        'tools available; your only output is this paragraph of plain text.'
-      ].join(' '),
-      messages: [{ role: 'user', content: brief }]
-    })
-  })
-
-  if (!response.ok) {
-    throw new Error(`Anthropic API request failed: ${response.status} ${await response.text()}`)
-  }
-
-  const body = await response.json() as { content: Array<{ type: string, text?: string }> }
-  const text = body.content.find(block => block.type === 'text')?.text
-  if (text === undefined) {
-    throw new Error('Anthropic API response had no text content')
-  }
-  return text.trim()
-}
-
 function baseCommit (): string {
   return execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim()
 }
 
-// The alert number and base commit are part of the verdict, not context: the patch author
-// job binds its own alert and checkout to them before it reads any file (ADR-0005).
-function verdictSummary (alert: AlertDetail, alertNumber: number, base: string, result: TriageResult): string {
+export type TaskflowRunOutcome =
+  | { ok: true, verdict: TaskflowVerdict }
+  | { ok: false, reason: string }
+
+export function runTaskflow (
+  alert: AlertDetail,
+  alertNumber: number,
+  spawnTaskflow: typeof spawnSync = spawnSync
+): TaskflowRunOutcome {
+  const dataDir = mkdtempSync(path.join(tmpdir(), 'security-triage-taskflow-'))
+
+  const result = spawnTaskflow('python3', [
+    '-m', 'seclab_taskflow_agent',
+    '-t', 'security_triage_taskflow.taskflows.triage',
+    '-m', 'security_triage_taskflow.configs.model_config',
+    '-g', `alert_number=${alertNumber}`,
+    '-g', `rule_id=${alert.ruleId}`,
+    '-g', `path=${alert.path}`,
+    '-g', `message=${alert.message}`
+  ], {
+    encoding: 'utf8',
+    env: {
+      ...process.env,
+      ANTHROPIC_API_KEY: requireEnv('ANTHROPIC_API_KEY'),
+      CONTAINER_WORKSPACE: process.cwd(),
+      LOG_DIR: path.join(dataDir, 'logs'),
+      XDG_DATA_HOME: dataDir,
+      PYTHONPATH: [process.cwd(), process.env.PYTHONPATH].filter(Boolean).join(path.delimiter)
+    }
+  })
+
+  if (result.error !== undefined) {
+    console.error(result.error)
+  }
+  if (result.stdout !== undefined && result.stdout !== '') {
+    console.log(result.stdout)
+  }
+  if (result.stderr !== undefined && result.stderr !== '') {
+    console.error(result.stderr)
+  }
+
+  if (result.error !== undefined) {
+    return { ok: false, reason: `The TaskFlow process failed to start: ${result.error.message}.` }
+  }
+  if (result.signal !== null) {
+    return { ok: false, reason: `The TaskFlow process was terminated by signal ${result.signal}.` }
+  }
+  if (result.status !== 0) {
+    return { ok: false, reason: `The TaskFlow process exited with status ${result.status ?? 'unknown'}.` }
+  }
+
+  const artifactsRoot = path.join(dataDir, 'seclab-taskflow-agent', 'artifacts')
+  const manifest = readManifest(artifactsRoot)
+  const outcome = parseTaskflowVerdict(manifest?.outputs?.investigate)
+  if (!outcome.ok) {
+    return { ok: false, reason: describeTaskflowVerdictFailure(outcome.reason) }
+  }
+  return { ok: true, verdict: outcome.verdict }
+}
+
+interface RunManifest {
+  outputs?: Record<string, unknown>
+}
+
+function readManifest (artifactsRoot: string): RunManifest | undefined {
+  if (!existsSync(artifactsRoot)) {
+    return undefined
+  }
+  const sessions = readdirSync(artifactsRoot)
+  const sessionId = sessions[0]
+  if (sessionId === undefined) {
+    return undefined
+  }
+  const manifestPath = path.join(artifactsRoot, sessionId, 'manifest.json')
+  if (!existsSync(manifestPath)) {
+    return undefined
+  }
+  try {
+    return JSON.parse(readFileSync(manifestPath, 'utf8')) as RunManifest
+  } catch {
+    return undefined
+  }
+}
+
+function verdictSummary (alert: AlertDetail, alertNumber: number, base: string, verdict: TaskflowVerdict): string {
   return [
-    `**Verdict: ${result.verdict}**`,
+    `**Verdict: ${verdict.verdict}**`,
     '',
     `- Alert: #${alertNumber}`,
     `- Base: \`${base}\``,
     `- Rule: \`${alert.ruleId}\``,
-    `- Path: \`${alert.path}\``,
-    `- Snippet coupling: ${result.coupling.snippetCoupled ? 'yes' : 'no'}`,
-    `- Solve coupling: ${result.coupling.solveCoupled ? 'yes' : 'no'}`,
-    `- Test code: ${result.isTestCode ? 'yes' : 'no'}`
+    `- Path: \`${alert.path}\``
   ].join('\n')
 }
 
-async function main (): Promise<void> {
-  const repo = requireEnv('GITHUB_REPOSITORY')
-  const issueNumber = requireEnv('ISSUE_NUMBER')
-  const issueBody = process.env.ISSUE_BODY ?? ''
+function evidenceList (verdict: TaskflowVerdict): string {
+  return ['', '**Evidence:**', ...verdict.evidence.map(item => `- \`${item.file}\`: ${item.note}`)].join('\n')
+}
 
-  const alertNumber = parseAlertNumber(issueBody)
-  if (alertNumber === undefined) {
+export interface SecurityTriageInput {
+  repo: string
+  issueNumber: string
+  issueBody: string
+  runLink: string
+}
+
+export interface SecurityTriageDependencies {
+  fetchAlertDetail: (repo: string, alertNumber: number) => AlertDetail
+  readBaseRefFile: (path: string) => string | undefined
+  baseCommit: () => string
+  runTaskflow: (alert: AlertDetail, alertNumber: number) => TaskflowRunOutcome
+  comment: (issueNumber: string, repo: string, body: string) => void
+  markTriaged: (issueNumber: string, repo: string) => void
+}
+
+const DEFAULT_DEPENDENCIES: SecurityTriageDependencies = {
+  fetchAlertDetail,
+  readBaseRefFile,
+  baseCommit,
+  runTaskflow,
+  comment: (issueNumber, repo, body) => {
+    gh(['issue', 'comment', issueNumber, '--repo', repo, '--body', body])
+  },
+  markTriaged: (issueNumber, repo) => {
     gh([
-      'issue', 'comment', issueNumber, '--repo', repo, '--body',
-      'Triage could not find an alert reference in this issue body (expected text such as ' +
-      '`alert #6`). No verdict was recorded; `sec:needs-triage` is unchanged.'
+      'issue', 'edit', issueNumber, '--repo', repo,
+      '--add-label', 'sec:triaged',
+      '--remove-label', 'sec:needs-triage'
     ])
-    process.exitCode = 1
-    return
+  }
+}
+
+function failureComment (message: string, runLink: string): string {
+  const suffix = runLink === '' ? '' : `\n\nWorkflow run: ${runLink}`
+  return `${message} No verdict was recorded; \`sec:needs-triage\` is unchanged.${suffix}`
+}
+
+export function runSecurityTriage (
+  input: SecurityTriageInput,
+  dependencies: SecurityTriageDependencies = DEFAULT_DEPENDENCIES
+): boolean {
+  const { repo, issueNumber, issueBody, runLink } = input
+
+  const parsedAlert = parseAlertUrl(issueBody, repo)
+  if (!parsedAlert.ok) {
+    dependencies.comment(issueNumber, repo, failureComment(describeAlertUrlFailure(parsedAlert.reason), runLink))
+    return false
   }
 
-  const alert = fetchAlertDetail(repo, alertNumber)
-  const result = determineVerdict(alert.path, readBaseRefFile)
-  const reasoning = await draftReasoning(alert, result)
-  const base = baseCommit()
+  const alertNumber = parsedAlert.alert.alertNumber
+  let alert: AlertDetail
+  try {
+    alert = dependencies.fetchAlertDetail(repo, alertNumber)
+  } catch {
+    dependencies.comment(issueNumber, repo, failureComment(`Triage could not read alert #${alertNumber}.`, runLink))
+    return false
+  }
 
-  const payload = encodeVerdictPayload({
+  const evidence = computeCouplingEvidence(alert.path, dependencies.readBaseRefFile)
+  const base = dependencies.baseCommit()
+
+  const outcome = dependencies.runTaskflow(alert, alertNumber)
+  if (!outcome.ok) {
+    dependencies.comment(issueNumber, repo, failureComment(
+      `Triage execution failed for alert #${alertNumber}: ${outcome.reason}`,
+      runLink
+    ))
+    return false
+  }
+
+  const payload: VerdictPayload = {
     alertNumber,
     baseCommit: base,
     ruleId: alert.ruleId,
     path: alert.path,
-    verdict: result.verdict,
-    snippetCoupled: result.coupling.snippetCoupled,
-    solveCoupled: result.coupling.solveCoupled,
-    isTestCode: result.isTestCode
-  })
+    verdict: outcome.verdict.verdict,
+    snippetCoupled: evidence.snippetCoupled,
+    solveCoupled: evidence.solveCoupled,
+    isTestCode: evidence.isTestCode,
+    reasoning: outcome.verdict.reasoning,
+    evidence: outcome.verdict.evidence
+  }
 
-  const comment = `${verdictSummary(alert, alertNumber, base, result)}\n\n${reasoning}\n\n${payload}`
-  gh(['issue', 'comment', issueNumber, '--repo', repo, '--body', comment])
-  gh([
-    'issue', 'edit', issueNumber, '--repo', repo,
-    '--add-label', 'sec:triaged',
-    '--remove-label', 'sec:needs-triage'
-  ])
+  const comment = [
+    verdictSummary(alert, alertNumber, base, outcome.verdict),
+    '',
+    outcome.verdict.reasoning,
+    evidenceList(outcome.verdict),
+    '',
+    encodeVerdictPayload(payload)
+  ].join('\n')
+
+  dependencies.comment(issueNumber, repo, comment)
+  dependencies.markTriaged(issueNumber, repo)
+  return true
 }
 
-main().catch((error: unknown) => {
-  console.error(error)
-  process.exitCode = 1
-})
+function main (): void {
+  const repo = requireEnv('GITHUB_REPOSITORY')
+  const success = runSecurityTriage({
+    repo,
+    issueNumber: requireEnv('ISSUE_NUMBER'),
+    issueBody: process.env.ISSUE_BODY ?? '',
+    runLink: workflowRunLink(repo)
+  })
+  if (!success) {
+    process.exitCode = 1
+  }
+}
+
+if (require.main === module) {
+  try {
+    main()
+  } catch (error: unknown) {
+    console.error(error)
+    process.exitCode = 1
+  }
+}

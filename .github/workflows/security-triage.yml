@@ -2,10 +2,50 @@ name: "Security triage"
 on:
   issues:
     types: [labeled]
+  push:
+    paths: &taskflow-paths
+      - 'security_triage_taskflow/**'
+      - 'lib/parseAlertUrl.ts'
+      - 'lib/couplingEvidence.ts'
+      - 'lib/verdictPayload.ts'
+      - 'lib/taskflowVerdict.ts'
+      - 'lib/scripts/securityTriage/triage.ts'
+      - '.github/workflows/security-triage.yml'
+  pull_request:
+    paths: *taskflow-paths
 permissions:
   contents: read
   issues: write
+env:
+  # Pinned per docs/adr/0009-taskflow-triage-implementation.md: seclab-taskflows has no tagged
+  # PyPI release compatible with the agent version that has the native Anthropic backend, so it
+  # is installed from a pinned commit on its main branch instead of a release tag.
+  TASKFLOW_AGENT_VERSION: "0.5.0"
+  TASKFLOW_TOOLS_COMMIT: "b69171affdaa2700ba58f045122937651a2b0a1b"
 jobs:
+  lint-taskflow:
+    if: github.event_name == 'push' || github.event_name == 'pull_request'
+    permissions:
+      contents: read
+    runs-on: ubuntu-latest
+    steps:
+      - name: "Check out Git repository"
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 #v7.0.1
+      - name: "Use Python"
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 #v6.3.0
+        with:
+          python-version: "3.12"
+      - name: "Install TaskFlow runner and companion tools"
+        run: |
+          pip install "seclab-taskflow-agent==${{ env.TASKFLOW_AGENT_VERSION }}" \
+            "seclab-taskflows @ git+https://github.com/GitHubSecurityLab/seclab-taskflows.git@${{ env.TASKFLOW_TOOLS_COMMIT }}"
+      - name: "Lint triage taskflow configuration"
+        env:
+          PYTHONPATH: ${{ github.workspace }}
+        run: |
+          python3 -m seclab_taskflow_agent --lint \
+            -t security_triage_taskflow.taskflows.triage \
+            -m security_triage_taskflow.configs.model_config
   triage:
     # Only a human applying sec:needs-triage starts this job; no other label or event does.
     if: github.event.label.name == 'sec:needs-triage'
@@ -30,6 +70,14 @@ jobs:
           node-version: 24
       - name: "Install application minimalistically"
         run: npm install --ignore-scripts
+      - name: "Use Python"
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 #v6.3.0
+        with:
+          python-version: "3.12"
+      - name: "Install TaskFlow runner and companion tools"
+        run: |
+          pip install "seclab-taskflow-agent==${{ env.TASKFLOW_AGENT_VERSION }}" \
+            "seclab-taskflows @ git+https://github.com/GitHubSecurityLab/seclab-taskflows.git@${{ env.TASKFLOW_TOOLS_COMMIT }}"
       - name: "Run triage"
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

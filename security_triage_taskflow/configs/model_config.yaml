@@ -1,0 +1,21 @@
+# SPDX-FileCopyrightText: OWASP Juice Shop contributors
+# SPDX-License-Identifier: MIT
+
+# Native Anthropic Messages backend (docs/adr/0007-taskflow-security-workflows.md,
+# docs/adr/0009-taskflow-triage-implementation.md). The endpoint is api.anthropic.com, not
+# GitHub's Copilot CAPI proxy, so the SDK backend uses native x-api-key auth rather than
+# Copilot's bearer-auth route - see ADR-0009 for the upstream source read that confirmed this.
+
+seclab-taskflow-agent:
+  version: "1.0"
+  filetype: model_config
+
+models:
+  claude: claude-sonnet-5
+
+model_settings:
+  claude:
+    backend: anthropic_sdk
+    api_type: messages
+    endpoint: https://api.anthropic.com
+    token: ANTHROPIC_API_KEY

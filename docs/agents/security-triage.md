@@ -6,13 +6,20 @@ defined in [routes/CONTEXT.md](../../routes/CONTEXT.md). Decisions are recorded 
 [0002](../adr/0002-authorization-inputs-read-from-base-ref.md),
 [0003](../adr/0003-fork-contribution-bots-removed.md),
 [0004](../adr/0004-triage-model-call-has-no-tools.md),
-[0005](../adr/0005-remediation-input-is-trusted-verdict-only.md) and
-[0006](../adr/0006-taskflow-runner-not-adopted.md).
+[0005](../adr/0005-remediation-input-is-trusted-verdict-only.md),
+[0006](../adr/0006-taskflow-runner-not-adopted.md) (superseded),
+[0007](../adr/0007-taskflow-security-workflows.md),
+[0008](../adr/0008-security-demo-scope.md) and
+[0009](../adr/0009-taskflow-triage-implementation.md).
+
+Triage (below) now runs on the SecLab TaskFlow Agent runner. Remediation and the gate
+(issue #31) have not been replaced yet and still run the bespoke implementation this document
+described before ADR-0007; their sections below are unchanged and describe that implementation.
 
 ## Stages
 
-A human transcribes one code-scanning alert into an issue and applies `sec:needs-triage`.
-Bulk processing is not supported and is not wanted.
+A human pastes one same-repository code-scanning alert URL into an issue and applies
+`sec:needs-triage`. Bulk processing is not supported and is not wanted.
 
 | Label | Applied by | Effect |
 | --- | --- | --- |
@@ -21,17 +28,26 @@ Bulk processing is not supported and is not wanted.
 | `sec:ready-for-remediation` | human | starts `remediate` and `gate` |
 | `sec:nopatch` | `gate` job | patch refused, reason in comment, no pull request |
 
-The verdict (`exploitable`, `not-applicable`, `coupled-needs-decision`) is written in the
-comment body, not encoded as a label. Only a label applied by a human causes a write to the
-codebase.
+The verdict (`confirmed`, `not-applicable`, `inconclusive`) is written in the comment body, not
+encoded as a label. Only a label applied by a human causes a write to the codebase.
+
+**Interim note (until issue #31):** `remediate`/`gate` are unchanged and still read the alert
+number from a case-insensitive `alert #<n>` text reference in the issue body
+(`lib/parseAlertNumber.ts`), not from the URL `triage` now expects. To carry an issue through
+the full loop today, include both forms in the issue body - the alert URL for `triage`, and
+`alert #<n>` text for `remediate`/`gate`. See
+[ADR-0009](../adr/0009-taskflow-triage-implementation.md).
 
 ## Jobs
 
-Triggered by `on: issues: types: [labeled]`.
+`triage`/`remediate`/`gate` are triggered by `on: issues: types: [labeled]`. `lint-taskflow`
+also runs on `push`/`pull_request` for paths touching the taskflow configuration, independent
+of any label and with no secrets.
 
 | Job | Permissions | Does |
 | --- | --- | --- |
-| `triage` | `issues: write`, `security-events: read` | reads the alert, calls the model, posts the verdict |
+| `lint-taskflow` | `contents: read` | offline TaskFlow grammar/resource lint, no model call |
+| `triage` | `issues: write`, `security-events: read` | reads the alert, runs the TaskFlow agent, posts the verdict |
 | `remediate` | `{}` | calls the model, writes a patch to an artifact |
 | `gate` | `contents: write`, `pull-requests: write`, `issues: write`, `security-events: read` | applies and checks the patch, opens the pull request or records NOPATCH |
 
@@ -45,29 +61,43 @@ permission is comment creation only.
 ## Triage job
 
 Implemented in `.github/workflows/security-triage.yml`, running
-`lib/scripts/securityTriage/triage.ts`.
+`lib/scripts/securityTriage/triage.ts` and the SecLab TaskFlow Agent runner
+(`security_triage_taskflow/`), per [ADR-0007](../adr/0007-taskflow-security-workflows.md) and
+[ADR-0009](../adr/0009-taskflow-triage-implementation.md).
 
-The human-transcribed issue body must contain a case-insensitive `alert #<n>` reference (for
-example "CodeQL alert #6"); `lib/parseAlertNumber.ts` reads it. Nothing else about the finding
-is trusted from the issue: the path and rule are fetched from the code-scanning API keyed by
-that number, so editing the issue body cannot redirect triage at a different file (issue #2,
-user story 13).
+The human-pasted issue body must contain exactly one same-repository code-scanning alert URL
+(`https://github.com/<owner>/<repo>/security/code-scanning/<n>`); `lib/parseAlertUrl.ts` reads
+it, distinguishing missing, ambiguous, unsupported (a secret-scanning or Dependabot alert URL)
+and cross-repository references so each produces a specific, visible failure comment with a
+link to the workflow run. Nothing else about the finding is trusted from the issue: the path
+and rule are fetched from the code-scanning API keyed by that number, so editing the issue body
+cannot redirect triage at a different file (issue #2, user story 13; issue #29, user story 4).
 
 The verdict comment carries two independent representations of the same decision: prose for a
 maintainer to read, and a structured JSON payload (`lib/verdictPayload.ts`) inside an HTML
 comment for the `remediate` and `gate` jobs to read. The payload states the alert number and
-the base commit it was decided against, as well as the rule, path and both coupling findings.
-Those two fields are what `remediate` and `gate` bind themselves to before they read anything
+the base commit it was decided against, as well as the rule, path and both coupling findings -
+its shape is unchanged from before ADR-0007 so `remediate`/`gate` keep working without
+modification (they are issue #31's scope). Those two fields are what `remediate` and `gate`
+bind themselves to before they read anything
 ([ADR-0005](../adr/0005-remediation-input-is-trusted-verdict-only.md)). Reformatting the prose
 paragraph does not affect the payload; a maintainer editing the comment for readability cannot
 break the handoff.
 
-The verdict is decided mechanically by `lib/triageVerdict.ts` against the checked-out base
-ref (`master`), before the model runs. The model call carries no tools and drafts only the
-prose explanation of that already-decided verdict; see
-[ADR-0004](../adr/0004-triage-model-call-has-no-tools.md). The workflow script, not the
-model, posts the comment and swaps `sec:needs-triage` for `sec:triaged`, using the job's own
-`issues: write` permission.
+The verdict is now derived by an agent that investigates the checked-out base ref (`master`)
+through the official container-shell MCP toolbox (`security_triage_taskflow/taskflows/
+triage.yaml`), not decided mechanically before the model runs - `lib/couplingEvidence.ts`
+(formerly `lib/triageVerdict.ts`) still computes the same challenge-marker/test-path signals,
+but only as investigative context handed to the agent and informational evidence in the
+payload; it no longer predetermines the verdict (issue #30 acceptance criteria; see
+[ADR-0001](../adr/0001-mechanical-coupling-detection.md) for the superseded mechanical
+approach and [ADR-0004](../adr/0004-triage-model-call-has-no-tools.md) for the superseded
+tool-free model call). The agent's structured output (`lib/taskflowVerdict.ts`) is read back
+from the TaskFlow run's own `manifest.json` artifact after the process exits - a plain file
+read, never a shell step templated with agent-produced text (see the taskflow file for why).
+The workflow script, not the model, posts the comment and swaps `sec:needs-triage` for
+`sec:triaged`, using the job's own `issues: write` permission; a parsing or execution failure
+produces a distinct visible comment instead and leaves the label unchanged.
 
 ## Allow-list
 
