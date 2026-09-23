@@ -1,17 +1,3 @@
-# SPDX-FileCopyrightText: OWASP Juice Shop contributors
-# SPDX-License-Identifier: MIT
-
-# Invoked by the `remediate` job in .github/workflows/security-triage.yml via
-# lib/scripts/securityTriage/remediate.ts. The deterministic script supplies the alert and the
-# assessment this workflow itself published on the originating issue as globals, and sets
-# CONTAINER_WORKSPACE/LOG_DIR/ANTHROPIC_API_KEY before invoking this taskflow.
-#
-# Unlike triage, the proposed change is not in the captured output: the agent edits the
-# checkout bind-mounted at /workspace, and the wrapper script reads the resulting diff with
-# git after the run. `capture: response` here carries only the agent's account of its own
-# work - what it changed and what it checked - which is published as the agent's claim and
-# never re-run (see docs/adr/0010-taskflow-remediation-implementation.md).
-
 seclab-taskflow-agent:
   version: "1.0"
   filetype: taskflow

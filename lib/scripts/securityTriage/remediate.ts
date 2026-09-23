@@ -1,21 +1,3 @@
-/*
- * Copyright (c) 2014-2026 Bjoern Kimminich & the OWASP Juice Shop contributors.
- * SPDX-License-Identifier: MIT
- */
-
-// CLI script run by the `remediate` job in .github/workflows/security-triage.yml.
-//
-// The job declares `permissions: {}` and checks out with `persist-credentials: false`: no
-// credential of any kind reaches it, so nothing the agent does here can reach GitHub. It
-// reads the assessment this workflow already published (an unauthenticated read of public
-// issue comments), runs the remediation taskflow over the checkout, and writes the resulting
-// diff - or the reason there is none - to an artifact directory. The credentialed `publish`
-// job reads that artifact and does every write (issue #31).
-//
-// Because the comment read is unauthenticated, anyone can write a comment this job sees.
-// `selectTrustedVerdict` alone decides which one it acts on, and the issue body only ever
-// contributes an alert number.
-
 import { execFileSync, spawnSync } from 'node:child_process'
 import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import path from 'node:path'
@@ -147,7 +129,6 @@ function readManifest (artifactsRoot: string): RunManifest | undefined {
   }
 }
 
-/** Every path already modified or untracked in the checkout, before the agent touches it. */
 export function dirtyPaths (runGit: (args: string[]) => string = git): string[] {
   return runGit(['status', '--porcelain', '--untracked-files=all'])
     .split('\n')
@@ -155,13 +136,6 @@ export function dirtyPaths (runGit: (args: string[]) => string = git): string[] 
     .map(line => line.slice(3).trim())
 }
 
-/**
- * The proposed change, read from the checkout the agent edited rather than from anything the
- * agent reported. Staging first makes added files part of the diff. Two kinds of path are
- * kept out of it, because the agent did not author them: whatever the job's own dependency
- * install already dirtied before the run, and the index files the container's exploration
- * tools (ctags, gtags, cscope) drop into the mounted workspace.
- */
 export function collectProposedDiff (
   preexisting: string[] = [],
   runGit: (args: string[]) => string = git
@@ -277,9 +251,6 @@ async function main (): Promise<void> {
   }
 }
 
-// Every failure, categorized or not, is written to the artifact this credential-free job
-// uploads: it cannot report anything itself, so `publish` reports it (issue #31). The job
-// still exits non-zero so the failure stays visible in the Actions run.
 if (require.main === module) {
   main().catch((error: unknown) => {
     console.error(error)

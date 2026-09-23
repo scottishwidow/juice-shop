@@ -1,8 +1,3 @@
-/*
- * Copyright (c) 2014-2026 Bjoern Kimminich & the OWASP Juice Shop contributors.
- * SPDX-License-Identifier: MIT
- */
-
 import { execFileSync, spawnSync } from 'node:child_process'
 import { readFileSync, existsSync, readdirSync } from 'node:fs'
 import path from 'node:path'
@@ -63,11 +58,6 @@ function baseCommit (): string {
   return execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim()
 }
 
-// The publishing credential this job holds for its own `gh` calls, kept out of the agent's
-// process tree. This job both drives a tool-using agent and can comment on and relabel the
-// issue; `remediate`/`publish` keep those two apart with a job boundary, and until triage is
-// split the same way, removing the token here is what keeps a model-driven shell command from
-// inheriting the authority that publishes its verdict (issue #30 acceptance criteria).
 const PUBLISHING_CREDENTIAL_VARIABLES = ['GH_TOKEN', 'GITHUB_TOKEN']
 
 export function agentEnvironment (dataDir: string): NodeJS.ProcessEnv {
