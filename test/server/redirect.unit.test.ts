@@ -48,6 +48,16 @@ void describe('redirect', () => {
     assert.ok(next.mock.calls[0].arguments[0] instanceof Error)
   })
 
+  void it('should raise error and not redirect when query.to is an array (type confusion via duplicate/bracket query params)', () => {
+    req.query.to = ['https://github.com/juice-shop/juice-shop', 'http://evil.example']
+
+    performRedirect()(req, res, next)
+
+    assert.equal(res.redirect.mock.calls.length, 0)
+    assert.equal(next.mock.calls.length, 1)
+    assert.ok(next.mock.calls[0].arguments[0] instanceof Error)
+  })
+
   void it('redirecting to https://blockchain.info/address/1AbKfgvw9psQ41NbLi8kufDQTezwG8DRZm should solve the "redirectCryptoCurrencyChallenge"', () => {
     req.query.to = 'https://blockchain.info/address/1AbKfgvw9psQ41NbLi8kufDQTezwG8DRZm'
     challenges.redirectCryptoCurrencyChallenge = { solved: false, save } as unknown as Challenge

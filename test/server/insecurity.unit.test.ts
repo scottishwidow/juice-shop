@@ -263,6 +263,11 @@ void describe('insecurity', () => {
       assert.equal(security.isRedirectAllowed('https://google.com'), false)
       assert.equal(security.isRedirectAllowed('https://owasp.org'), false)
     })
+
+    void it('returns false for non-string input (e.g. array from duplicate/bracket query params) instead of using Array.prototype.includes semantics', () => {
+      assert.equal(security.isRedirectAllowed(['https://github.com/juice-shop/juice-shop'] as unknown as string), false)
+      assert.equal(security.isRedirectAllowed({ toString: () => 'https://github.com/juice-shop/juice-shop' } as unknown as string), false)
+    })
   })
 
   void describe('sanitizeFilename', () => {
