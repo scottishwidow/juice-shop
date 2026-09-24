@@ -4,29 +4,26 @@ on:
     types: [labeled]
   push:
     paths: &taskflow-paths
-      - 'security_triage_taskflow/**'
-      - 'lib/parseAlertUrl.ts'
-      - 'lib/couplingEvidence.ts'
-      - 'lib/verdictPayload.ts'
-      - 'lib/taskflowVerdict.ts'
-      - 'lib/taskflowDataDir.ts'
-      - 'lib/trustedVerdict.ts'
-      - 'lib/issueComments.ts'
-      - 'lib/excludedPaths.ts'
-      - 'lib/remediationArtifact.ts'
-      - 'lib/remediationPr.ts'
-      - 'lib/remediationProposal.ts'
-      - 'lib/scripts/securityTriage/**'
-      - '.github/workflows/security-triage.yml'
+      - "security_triage_taskflow/**"
+      - "lib/parseAlertUrl.ts"
+      - "lib/couplingEvidence.ts"
+      - "lib/verdictPayload.ts"
+      - "lib/taskflowVerdict.ts"
+      - "lib/taskflowDataDir.ts"
+      - "lib/trustedVerdict.ts"
+      - "lib/issueComments.ts"
+      - "lib/excludedPaths.ts"
+      - "lib/remediationArtifact.ts"
+      - "lib/remediationPr.ts"
+      - "lib/remediationProposal.ts"
+      - "lib/scripts/securityTriage/**"
+      - ".github/workflows/security-triage.yml"
   pull_request:
     paths: *taskflow-paths
 permissions:
   contents: read
   issues: write
 env:
-  # Pinned per docs/adr/0009-taskflow-triage-implementation.md: seclab-taskflows has no tagged
-  # PyPI release compatible with the agent version that has the native Anthropic backend, so it
-  # is installed from a pinned commit on its main branch instead of a release tag.
   TASKFLOW_AGENT_VERSION: "0.5.0"
   TASKFLOW_TOOLS_COMMIT: "b69171affdaa2700ba58f045122937651a2b0a1b"
 jobs:
@@ -47,8 +44,6 @@ jobs:
           pip install "seclab-taskflow-agent==${{ env.TASKFLOW_AGENT_VERSION }}" \
             "seclab-taskflows @ git+https://github.com/GitHubSecurityLab/seclab-taskflows.git@${{ env.TASKFLOW_TOOLS_COMMIT }}"
       - name: "Lint taskflow configuration"
-        # Lints both taskflows and every resource they reference - personalities, toolbox and
-        # model config - offline, with no secrets and no model call.
         env:
           PYTHONPATH: ${{ github.workspace }}
         run: |
@@ -59,12 +54,7 @@ jobs:
             -t security_triage_taskflow.taskflows.remediate \
             -m security_triage_taskflow.configs.model_config
   triage:
-    # Only a human applying sec:needs-triage starts this job; no other label or event does.
     if: github.event.label.name == 'sec:needs-triage'
-    # Declared per job rather than inherited, so each job's credential set is legible in one
-    # place. security-events: read is the scope the code-scanning API requires: the alert's
-    # rule and path are read from it, never from the issue body. issues: write covers comment
-    # creation and the sec:needs-triage -> sec:triaged swap, and nothing else.
     permissions:
       contents: read
       issues: write
@@ -98,14 +88,6 @@ jobs:
           ISSUE_BODY: ${{ github.event.issue.body }}
         run: npx tsx lib/scripts/securityTriage/triage.ts
   remediate:
-    # Only a human applying sec:ready-for-remediation starts this job; no other label or event
-    # does. Removing and reapplying that label starts a fresh attempt, with no deduplication
-    # and no attempt tracking (issue #29, user stories 24-25).
-    #
-    # This job runs the model and holds no write credential of any kind: `permissions: {}`,
-    # and a checkout that persists none either. The agent edits a copy of this checkout,
-    # outside it, through the container-shell toolbox; the diff it leaves behind travels to
-    # `publish` as an artifact, which is the only thing that crosses the credential boundary.
     if: github.event.label.name == 'sec:ready-for-remediation'
     permissions: {}
     runs-on: ubuntu-latest
@@ -136,24 +118,12 @@ jobs:
           ISSUE_BODY: ${{ github.event.issue.body }}
         run: npx tsx lib/scripts/securityTriage/remediate.ts
       - name: "Upload proposed change"
-        # Runs even if the step above failed: a categorized failure (or the catch-all
-        # `unexpected-error`) is still written to remediation-output/failure.json, and the
-        # publish job must see it to report the failure instead of running silent.
         if: always()
         uses: actions/upload-artifact@6f51ac03b9356f520e9adb1b1b7802705f340c2b #v4.5.0
         with:
           name: remediation-${{ github.event.issue.number }}-${{ github.run_id }}-${{ github.run_attempt }}
           path: remediation-output/
   publish:
-    # Holds the workflow's write credentials and makes no model call. It installs
-    # dependencies from `master` before it reads the proposed change, and never runs a script,
-    # test or build from the proposed tree - so a proposed change cannot execute with, or
-    # change, the authority that publishes it. Exclusions (lib/excludedPaths.ts) are enforced
-    # here, against the paths the diff actually touches.
-    #
-    # Runs even if `remediate` failed (`always()`): that job holds no credential and cannot
-    # report its own failure, so this job must still run to comment it. The label guard is
-    # unchanged, so an unrelated labelling event still runs neither job.
     needs: remediate
     if: always() && github.event.label.name == 'sec:ready-for-remediation'
     permissions:
@@ -173,9 +143,6 @@ jobs:
       - name: "Install application minimalistically"
         run: npm install --ignore-scripts
       - name: "Download proposed change"
-        # continue-on-error covers the case where `remediate` crashed before writing anything
-        # at all, so no artifact exists. "Publish proposed change" reports that to the
-        # maintainer rather than running with missing input.
         continue-on-error: true
         uses: actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16 #v4.1.8
         with:

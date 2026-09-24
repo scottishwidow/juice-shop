@@ -1,6 +1,3 @@
-# SPDX-FileCopyrightText: OWASP Juice Shop contributors
-# SPDX-License-Identifier: MIT
-
 seclab-taskflow-agent:
   version: "1.0"
   filetype: personality

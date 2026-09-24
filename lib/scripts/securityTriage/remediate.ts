@@ -1,21 +1,3 @@
-/*
- * Copyright (c) 2014-2026 Bjoern Kimminich & the OWASP Juice Shop contributors.
- * SPDX-License-Identifier: MIT
- */
-
-// CLI script run by the `remediate` job in .github/workflows/security-triage.yml.
-//
-// The job declares `permissions: {}` and checks out with `persist-credentials: false`: no
-// credential of any kind reaches it, so nothing the agent does here can reach GitHub. It
-// reads the assessment this workflow already published (an unauthenticated read of public
-// issue comments), runs the remediation taskflow over the checkout, and writes the resulting
-// diff - or the reason there is none - to an artifact directory. The credentialed `publish`
-// job reads that artifact and does every write (issue #31).
-//
-// Because the comment read is unauthenticated, anyone can write a comment this job sees.
-// `selectTrustedVerdict` alone decides which one it acts on, and the issue body only ever
-// contributes an alert number.
-
 import { execFileSync, spawnSync } from 'node:child_process'
 import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -156,11 +138,6 @@ function readManifest (artifactsRoot: string): RunManifest | undefined {
   }
 }
 
-/**
- * A copy of the job checkout's tracked files, with its own throwaway git repository, so the
- * agent never gets write access to the job's `.git` directory. Built from the index, so files
- * the job's own dependency install changed never reach it.
- */
 export function prepareAgentWorkspace (runGit: RunGit = git): string {
   const workspace = mkdtempSync(path.join(tmpdir(), 'security-remediation-workspace-'))
   runGit(['checkout-index', '-a', '-f', `--prefix=${workspace}${path.sep}`])
@@ -179,12 +156,6 @@ export type ProposedDiffOutcome =
   | { ok: true, diff: string }
   | { ok: false, nestedRepositories: string[] }
 
-/**
- * Diffs the workspace as an external work tree against the job's own git directory, through a
- * throwaway index. Git ignores the `.git` at the root of a work tree, and attributes come from
- * the job's `HEAD`, so the runner never uses a git config or `.gitattributes` the agent wrote.
- * A nested repository is refused because git would open it to record it as a submodule.
- */
 export function collectProposedDiff (workspace: string, runGit: RunGit = git): ProposedDiffOutcome {
   const nestedRepositories = findNestedRepositories(workspace)
   if (nestedRepositories.length > 0) {
@@ -341,9 +312,6 @@ async function main (): Promise<void> {
   }
 }
 
-// Every failure, categorized or not, is written to the artifact this credential-free job
-// uploads: it cannot report anything itself, so `publish` reports it (issue #31). The job
-// still exits non-zero so the failure stays visible in the Actions run.
 if (require.main === module) {
   main().catch((error: unknown) => {
     console.error(error)

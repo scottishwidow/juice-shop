@@ -1,15 +1,3 @@
-# SPDX-FileCopyrightText: GitHub, Inc.
-# SPDX-License-Identifier: MIT
-
-# Vendored from GitHubSecurityLab/seclab-taskflows
-# (src/seclab_taskflows/toolboxes/container_shell_source_access.yaml, commit b69171a) with one
-# change: CONTAINER_IMAGE is pinned to the digest resolved for :latest at the time this file was
-# vendored, rather than tracking the floating tag. See docs/adr/0009-taskflow-triage-implementation.md.
-#
-# LOG_DIR and CONTAINER_WORKSPACE are required environment variables here (the agent's env()
-# template function defaults to required=True); the triage job that invokes this taskflow must
-# set both before running.
-
 seclab-taskflow-agent:
   filetype: toolbox
   version: "1.0"
