@@ -17,7 +17,7 @@
 // contributes an alert number.
 
 import { execFileSync, spawnSync } from 'node:child_process'
-import { existsSync, mkdtempSync, readdirSync, readFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
@@ -51,9 +51,14 @@ function requireEnv (name: string): string {
   return value
 }
 
-type RunGit = (args: string[], options?: { cwd?: string, env?: NodeJS.ProcessEnv }) => string
+export interface GitOptions {
+  cwd?: string
+  env?: NodeJS.ProcessEnv
+}
 
-function git (args: string[], options: { cwd?: string, env?: NodeJS.ProcessEnv } = {}): string {
+export type RunGit = (args: string[], options?: GitOptions) => string
+
+function git (args: string[], options: GitOptions = {}): string {
   return execFileSync('git', args, { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024, ...options })
 }
 
@@ -152,17 +157,15 @@ function readManifest (artifactsRoot: string): RunManifest | undefined {
 }
 
 /**
- * A copy of the job checkout's tracked files, outside the checkout and with its own throwaway
- * git repository, so the agent never gets write access to the job's `.git` directory. Built
- * from the index (`git checkout-index`), so files the job's own dependency install left dirty
- * or untracked never reach it. The baseline commit lets the agent run `git diff` inside its
- * own workspace; it is never read by the job's own git directory afterwards.
+ * A copy of the job checkout's tracked files, with its own throwaway git repository, so the
+ * agent never gets write access to the job's `.git` directory. Built from the index, so files
+ * the job's own dependency install changed never reach it.
  */
 export function prepareAgentWorkspace (runGit: RunGit = git): string {
   const workspace = mkdtempSync(path.join(tmpdir(), 'security-remediation-workspace-'))
   runGit(['checkout-index', '-a', '-f', `--prefix=${workspace}${path.sep}`])
   runGit(['init', '-q'], { cwd: workspace })
-  runGit(['add', '-A'], { cwd: workspace })
+  runGit(['add', '-A', '--force'], { cwd: workspace })
   runGit([
     '-c', 'user.name=security-remediation-agent',
     '-c', 'user.email=security-remediation-agent@localhost',
@@ -172,29 +175,55 @@ export function prepareAgentWorkspace (runGit: RunGit = git): string {
   return workspace
 }
 
-/**
- * The proposed change: the job checkout's own git directory diffed against the agent's
- * workspace as an external work tree, through a throwaway index. This never reads or runs
- * anything from the workspace's `.git` - git ignores a work tree's own `.git` at its root -
- * so nothing the agent wrote there, including its git config, is interpreted by the runner.
- * `core.fsmonitor`/`core.hooksPath` are cleared as defence in depth; the trusted config this
- * runs with should never set them. Index files the container's exploration tools (ctags,
- * gtags, cscope) drop into the workspace are excluded, because the agent did not author them.
- */
-export function collectProposedDiff (workspace: string, runGit: RunGit = git): string {
-  const indexDir = mkdtempSync(path.join(tmpdir(), 'security-remediation-index-'))
-  const env = { ...process.env, GIT_INDEX_FILE: path.join(indexDir, 'index') }
-  const excludes = SOURCE_INDEX_ARTIFACTS.map(name => `:(exclude)${name}`)
+export type ProposedDiffOutcome =
+  | { ok: true, diff: string }
+  | { ok: false, nestedRepositories: string[] }
 
-  runGit(['read-tree', 'HEAD'], { env })
-  runGit([
-    '-c', 'core.fsmonitor=false', '-c', 'core.hooksPath=/dev/null',
-    `--work-tree=${workspace}`, 'add', '-A', '--', '.', ...excludes
-  ], { env })
-  return runGit([
-    '-c', 'core.fsmonitor=false', '-c', 'core.hooksPath=/dev/null',
-    `--work-tree=${workspace}`, 'diff', '--cached', '--binary', 'HEAD'
-  ], { env })
+/**
+ * Diffs the workspace as an external work tree against the job's own git directory, through a
+ * throwaway index. Git ignores the `.git` at the root of a work tree, and attributes come from
+ * the job's `HEAD`, so the runner never uses a git config or `.gitattributes` the agent wrote.
+ * A nested repository is refused because git would open it to record it as a submodule.
+ */
+export function collectProposedDiff (workspace: string, runGit: RunGit = git): ProposedDiffOutcome {
+  const nestedRepositories = findNestedRepositories(workspace)
+  if (nestedRepositories.length > 0) {
+    return { ok: false, nestedRepositories }
+  }
+
+  const indexDir = mkdtempSync(path.join(tmpdir(), 'security-remediation-index-'))
+  try {
+    const env = { ...process.env, GIT_INDEX_FILE: path.join(indexDir, 'index') }
+    const workTreeGit = [
+      '-c', 'core.fsmonitor=false', '-c', 'core.hooksPath=/dev/null',
+      '--attr-source=HEAD', `--work-tree=${workspace}`
+    ]
+    const excludes = SOURCE_INDEX_ARTIFACTS.map(name => `:(exclude)${name}`)
+
+    runGit(['read-tree', 'HEAD'], { env })
+    runGit([...workTreeGit, 'add', '-A', '--', '.', ...excludes], { env })
+    return { ok: true, diff: runGit([...workTreeGit, 'diff', '--cached', '--binary', 'HEAD'], { env }) }
+  } finally {
+    rmSync(indexDir, { recursive: true, force: true })
+  }
+}
+
+function findNestedRepositories (workspace: string): string[] {
+  const found: string[] = []
+  const visit = (dir: string): void => {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      const entryPath = path.join(dir, entry.name)
+      if (entry.name === '.git') {
+        if (dir !== workspace) {
+          found.push(path.relative(workspace, entryPath))
+        }
+      } else if (entry.isDirectory()) {
+        visit(entryPath)
+      }
+    }
+  }
+  visit(workspace)
+  return found
 }
 
 function assessmentText (verdict: VerdictPayload): string {
@@ -214,7 +243,7 @@ export interface SecurityRemediationDependencies {
   baseCommit: () => string
   prepareWorkspace: () => string
   runTaskflow: (context: RemediationContext, workspace: string) => TaskflowRunOutcome
-  collectProposedDiff: (workspace: string) => string
+  collectProposedDiff: (workspace: string) => ProposedDiffOutcome
   writeProposal: (artifact: RemediationProposalArtifact, diff: string) => void
   writeFailure: (failure: RemediationFailure) => void
 }
@@ -273,7 +302,16 @@ export async function runSecurityRemediation (
     return false
   }
 
-  const diff = dependencies.collectProposedDiff(workspace)
+  const collected = dependencies.collectProposedDiff(workspace)
+  if (!collected.ok) {
+    dependencies.writeFailure({
+      reason: 'nested-repository',
+      detail: `The agent created a git repository inside its workspace: ${collected.nestedRepositories.join(', ')}.`
+    })
+    return false
+  }
+
+  const diff = collected.diff
   if (diff.trim() === '') {
     dependencies.writeFailure({
       reason: 'no-change',

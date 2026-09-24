@@ -130,14 +130,13 @@ Implemented in `.github/workflows/security-triage.yml`'s `remediate` job, runnin
 (`security_triage_taskflow/taskflows/remediate.yaml`), per
 [ADR-0010](../adr/0010-taskflow-remediation-implementation.md).
 
-The job checks out current `master`. The agent never gets that checkout itself: it is mounted
-into the same official container-shell toolbox triage uses as a separate workspace, copied
-from the checkout's tracked files, with its own throwaway git repository. That keeps the
-agent, which runs as root in the container, from ever writing to the job's own `.git`
-directory - a config setting written there (`core.fsmonitor`, a filter driver) would otherwise
-run as a command on the runner once the job's own git commands read it back. The agent
-investigates and edits the workspace over many tool calls; the fix is whatever it leaves in
-the working tree. It may change any source or test file,
+The job checks out current `master`. The agent does not get this checkout. It gets a
+separate workspace, mounted into the same official container-shell toolbox triage uses. The
+workspace is a copy of the tracked files of the checkout, with its own throwaway git
+repository. The agent runs as root in the container. Thus, if it could write to the `.git`
+directory of the job, a setting such as `core.fsmonitor` could run a command on the runner.
+The agent investigates and edits the workspace over many tool calls. The fix is what it
+leaves in the working tree. It may change any source or test file,
 including an intentionally vulnerable route and the tests that assert the vulnerable
 behavior. There is no per-file allow-list and no challenge-preservation gate: both were
 removed with the bespoke implementation (issue #31; [ADR-0008](../adr/0008-security-demo-scope.md)).
@@ -155,14 +154,28 @@ The job declares `permissions: {}` and checks out with `persist-credentials: fal
 container has no network. No credential of any kind reaches the model-driven side of the
 workflow, so nothing the agent does can reach GitHub by itself.
 
-After the run, `remediate.ts` reads two independent things: the diff, and the agent's own
-account of its work. The diff comes from the job's own git directory, diffed against the
-agent's workspace as an external work tree, through a throwaway index - so the job's git
-directory reads and runs nothing from the workspace's `.git`, and the diff holds only what the
-agent authored, excluding the container's own index files. The account comes from the
-TaskFlow session's `manifest.json` (`lib/remediationProposal.ts`). The account is a claim, not
-a result - nothing re-runs the checks it reports. Both go to a workflow artifact
-(`lib/remediationArtifact.ts`), which is the only thing crossing to the credentialed job.
+After the run, `remediate.ts` reads two independent things: the diff, and the account of the
+agent of its work.
+
+The diff comes from the git directory of the job, which is never mounted. Git compares it
+with the workspace as an external work tree, through a throwaway index:
+
+- Git does not read the `.git` at the root of a work tree. Thus the runner does not use a git
+  config that the agent wrote.
+- Attributes come from `HEAD` of the job (`--attr-source=HEAD`). Thus a `.gitattributes` that
+  the agent wrote cannot select a filter driver on the runner.
+- If the agent makes a nested repository (a `.git` below the root), the job records the
+  `nested-repository` failure and does not run git. Git opens a nested repository to record it
+  as a submodule.
+- The diff excludes the index files of the container exploration tools.
+
+The runner still reads the `.gitignore` files of the workspace. These can only hide files of
+the agent from its own diff.
+
+The account comes from the TaskFlow session's `manifest.json` (`lib/remediationProposal.ts`).
+The account is a claim, not a result. Nothing runs the checks it reports again. Both go to a
+workflow artifact (`lib/remediationArtifact.ts`). This artifact is the only thing that goes
+to the credentialed job.
 
 ## Publish job
 

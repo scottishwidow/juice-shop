@@ -73,6 +73,7 @@ interface RemediationHarnessOverrides {
   diff?: string
   issueBody?: string
   workspace?: string
+  nestedRepositories?: string[]
 }
 
 async function remediationHarness (overrides: RemediationHarnessOverrides = {}) {
@@ -87,14 +88,17 @@ async function remediationHarness (overrides: RemediationHarnessOverrides = {}) 
     fetchComments: async () => overrides.comments ?? [verdictComment()],
     baseCommit: () => CURRENT_MASTER,
     prepareWorkspace: () => workspace,
-    runTaskflow: (context, ws) => {
+    runTaskflow: (context, taskflowWorkspace) => {
       contexts.push(context)
-      taskflowWorkspaces.push(ws)
+      taskflowWorkspaces.push(taskflowWorkspace)
       return overrides.taskflow ?? { ok: true, proposal: PROPOSAL }
     },
-    collectProposedDiff: ws => {
-      diffedWorkspaces.push(ws)
-      return overrides.diff ?? DIFF
+    collectProposedDiff: diffedWorkspace => {
+      diffedWorkspaces.push(diffedWorkspace)
+      if (overrides.nestedRepositories !== undefined) {
+        return { ok: false, nestedRepositories: overrides.nestedRepositories }
+      }
+      return { ok: true, diff: overrides.diff ?? DIFF }
     },
     writeProposal: (artifact, diff) => proposals.push({ artifact, diff }),
     writeFailure: failure => failures.push(failure)
@@ -298,6 +302,15 @@ void describe('security remediation workflow', () => {
     assert.equal(published, true)
     assert.deepEqual(taskflowWorkspaces, ['/tmp/security-remediation-workspace-abc123'])
     assert.deepEqual(diffedWorkspaces, ['/tmp/security-remediation-workspace-abc123'])
+  })
+
+  void it('records nested-repository when the agent created a git repository in its workspace', async () => {
+    const { published, proposals, failures } = await remediationHarness({ nestedRepositories: ['vendor/lib/.git'] })
+
+    assert.equal(published, false)
+    assert.equal(proposals.length, 0)
+    assert.equal(failures[0].reason, 'nested-repository')
+    assert.match(failures[0].detail, /vendor\/lib\/\.git/)
   })
 
   void it('records no-change when the agent left the checkout untouched', async () => {
