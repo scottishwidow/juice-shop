@@ -6,7 +6,7 @@
 import { describe, it } from 'node:test'
 import assert from 'node:assert/strict'
 
-import { describeExcludedPaths, findExcludedPaths } from '../../lib/excludedPaths'
+import { describeExcludedPaths, findExcludedPaths } from '../lib/excludedPaths'
 
 void describe('remediation path exclusions', () => {
   void it('allows ordinary source and test edits, including an intentionally vulnerable route', () => {
@@ -42,13 +42,19 @@ void describe('remediation path exclusions', () => {
 
   void it("rejects a change to the workflow's own authorization policy and publishing code", () => {
     const excluded = findExcludedPaths([
-      'security_triage_taskflow/personalities/remediation_engineer.yaml',
-      'lib/scripts/securityTriage/publish.ts',
-      'lib/excludedPaths.ts',
-      'lib/trustedVerdict.ts'
+      '.github/security_triage_taskflow/personalities/remediation_engineer.yaml',
+      '.github/security_triage_taskflow/scripts/publish.ts',
+      '.github/security_triage_taskflow/lib/excludedPaths.ts',
+      '.github/security_triage_taskflow/lib/trustedVerdict.ts'
     ])
 
     assert.deepEqual(excluded.map(entry => entry.category), Array(4).fill('authorization-policy'))
+  })
+
+  void it('rejects a root-level copy of the taskflow package, which Python would import first', () => {
+    const excluded = findExcludedPaths(['security_triage_taskflow/taskflows/remediate.yaml'])
+
+    assert.deepEqual(excluded, [{ path: 'security_triage_taskflow/taskflows/remediate.yaml', category: 'authorization-policy' }])
   })
 
   void it('reports every excluded path in a change that also touches allowed files', () => {

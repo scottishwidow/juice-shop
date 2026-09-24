@@ -6,7 +6,7 @@ status: partially superseded by ADR-0010
 
 **ADR-0010 supersedes the base-commit pinning and the allow-list described below. The rule
 that only the triage job's own verdict comment selects anything survives and is still
-implemented in `lib/trustedVerdict.ts`.**
+implemented in `trustedVerdict.ts`, in `.github/security_triage_taskflow/lib/`.**
 
 The `remediate` job holds no credentials (ADR-0002), so it reads the triage verdict from an
 unauthenticated GET of the issue's public comments. Anyone who can comment on a public issue
@@ -21,7 +21,7 @@ Three rules close it, and each is a separate testable function rather than a che
 the script:
 
 1. **Only the triage job's own verdict selects a target.** `selectTrustedVerdict`
-   (`lib/trustedVerdict.ts`) accepts a comment only from `github-actions[bot]`, the single
+   (`trustedVerdict.ts`) accepts a comment only from `github-actions[bot]`, the single
    identity the `triage` job can post as, and only one whose `- Alert:` field matches the
    alert the issue body names and whose `- Base:` field matches the commit this job checked
    out. The verdict comment carries both fields for that reason. Every other comment,

@@ -4,14 +4,14 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 
-import { describeExcludedPaths, findExcludedPaths } from '../../excludedPaths'
+import { describeExcludedPaths, findExcludedPaths } from '../lib/excludedPaths'
 import {
   readRemediationArtifact,
   REMEDIATION_OUTPUT_DIR,
   type RemediationArtifact,
   type RemediationFailureReason,
   type RemediationProposalArtifact
-} from '../../remediationArtifact'
+} from '../lib/remediationArtifact'
 import {
   buildFailureComment,
   buildPrBody,
@@ -22,7 +22,7 @@ import {
   remediationDestination,
   REMEDIATION_COMMIT_IDENTITY,
   type AttemptIdentity
-} from '../../remediationPr'
+} from '../lib/remediationPr'
 
 export const MODEL = 'claude-sonnet-5'
 

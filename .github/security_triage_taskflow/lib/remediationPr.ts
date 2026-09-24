@@ -1,5 +1,6 @@
 import { describeRemediationFailure, type RemediationAlert, type RemediationFailureReason, type RemediationProposalArtifact } from './remediationArtifact'
 import type { RemediationCheck } from './remediationProposal'
+import { TASKFLOW_PACKAGE_PATH } from './taskflowPackage'
 
 export const REMEDIATION_COMMIT_IDENTITY = {
   name: 'github-actions[bot]',
@@ -106,7 +107,7 @@ export function buildPrBody (input: PrBodyInput): string {
     'that make no model call.',
     `Models and versions: ${model}`,
     'Key prompts or instructions: the remediation taskflow and personality in ' +
-    '`security_triage_taskflow/`, plus the alert and the triage assessment this workflow ' +
+    `\`${TASKFLOW_PACKAGE_PATH}/\`, plus the alert and the triage assessment this workflow ` +
     'published on the originating issue.',
     '',
     '### Affirmation',

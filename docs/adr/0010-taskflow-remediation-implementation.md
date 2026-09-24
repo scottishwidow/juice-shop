@@ -13,10 +13,14 @@ ADR-0009 replaced `triage` with the SecLab TaskFlow Agent runner and left `remed
 on the bespoke implementation. This ADR replaces them, completing issue #29. It supersedes
 [ADR-0005](0005-remediation-input-is-trusted-verdict-only.md) in the parts about pinning
 remediation to one base commit and about the allow-list; the part about which comment is
-trusted survives unchanged and is the reason `lib/trustedVerdict.ts` is retained. It also
+trusted survives unchanged and is the reason `trustedVerdict.ts` is retained. It also
 supersedes the two sections of [ADR-0009](0009-taskflow-triage-implementation.md) that
 reasoned about the bespoke `remediate`/`gate` - its `VerdictPayload` read-shape argument and
 its retention of `lib/parseAlertNumber.ts`; both are marked there.
+
+The current TypeScript files this record names are in `.github/security_triage_taskflow/lib/`
+and `.github/security_triage_taskflow/scripts/`. Paths that start with `lib/` name files that
+were in the root `lib/` directory and are now deleted.
 
 ## The fix is an edited checkout, not a proposed diff
 
@@ -31,7 +35,7 @@ workspace is a copy of the tracked files of current `master`, made with `git che
 It has its own throwaway git repository, so `git diff` works for the agent in the container.
 
 The deliverable is the working tree the agent leaves behind. After the process exits,
-`lib/scripts/securityTriage/remediate.ts` reads the diff. It uses the git directory of the
+`remediate.ts` reads the diff. It uses the git directory of the
 job, which is never mounted, with the workspace as an external work tree and a throwaway
 index. The agent's `capture: response` output holds only its account of its work: a summary
 and the checks it says it ran. This is a claim. It is published as a claim, and nothing runs
@@ -55,7 +59,7 @@ machinery. Fixing an intentional Juice Shop vulnerability is the demonstration, 
 that refuses to touch coupled routes refuses the demonstration
 ([ADR-0008](0008-security-demo-scope.md)).
 
-What replaces it is narrower and inverted: `lib/excludedPaths.ts` names what a proposed change
+What replaces it is narrower and inverted: `excludedPaths.ts` names what a proposed change
 may never touch - workflow and CI definitions, credential and key material, and the security
 workflow's own authorization and publishing code. The rule is evaluated by the credentialed
 `publish` job against the paths the applied diff actually touches, not by the agent and not
@@ -101,7 +105,7 @@ commit stays in the payload as information for the reader.
 Issue #29's user story 22 requires a pull request even when checks failed or never ran. The
 container is a source-access image with no application runtime, so in practice most checks
 will be reported `not-run`. The honesty burden moves entirely into the pull request body
-(`lib/remediationPr.ts`): agent-reported results are labelled as the agent's, the body states
+(`remediationPr.ts`): agent-reported results are labelled as the agent's, the body states
 that the workflow verified none of them, the pull request is always a draft, and the
 Affirmation box is never checked. `Closes #<issue>` links the issue; merging is a human act,
 and nothing in the workflow merges or closes anything.

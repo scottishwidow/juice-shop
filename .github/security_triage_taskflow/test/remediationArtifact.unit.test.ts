@@ -16,7 +16,7 @@ import {
   writeRemediationFailure,
   writeRemediationProposal,
   type RemediationProposalArtifact
-} from '../../lib/remediationArtifact'
+} from '../lib/remediationArtifact'
 
 const DIFF = 'diff --git a/routes/keyServer.ts b/routes/keyServer.ts\n'
 

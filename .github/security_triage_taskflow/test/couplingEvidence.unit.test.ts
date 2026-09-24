@@ -5,7 +5,7 @@
 
 import { describe, it } from 'node:test'
 import assert from 'node:assert/strict'
-import { computeCouplingEvidence, type BaseRefReader } from '../../lib/couplingEvidence'
+import { computeCouplingEvidence, type BaseRefReader } from '../lib/couplingEvidence'
 
 function readerWithFiles (files: Record<string, string>): BaseRefReader {
   return (path: string) => files[path]

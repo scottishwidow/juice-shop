@@ -4,19 +4,7 @@ on:
     types: [labeled]
   push:
     paths: &taskflow-paths
-      - "security_triage_taskflow/**"
-      - "lib/parseAlertUrl.ts"
-      - "lib/couplingEvidence.ts"
-      - "lib/verdictPayload.ts"
-      - "lib/taskflowVerdict.ts"
-      - "lib/taskflowDataDir.ts"
-      - "lib/trustedVerdict.ts"
-      - "lib/issueComments.ts"
-      - "lib/excludedPaths.ts"
-      - "lib/remediationArtifact.ts"
-      - "lib/remediationPr.ts"
-      - "lib/remediationProposal.ts"
-      - "lib/scripts/securityTriage/**"
+      - ".github/security_triage_taskflow/**"
       - ".github/workflows/security-triage.yml"
   pull_request:
     paths: *taskflow-paths
@@ -45,7 +33,7 @@ jobs:
             "seclab-taskflows @ git+https://github.com/GitHubSecurityLab/seclab-taskflows.git@${{ env.TASKFLOW_TOOLS_COMMIT }}"
       - name: "Lint taskflow configuration"
         env:
-          PYTHONPATH: ${{ github.workspace }}
+          PYTHONPATH: ${{ github.workspace }}/.github
         run: |
           python3 -m seclab_taskflow_agent --lint \
             -t security_triage_taskflow.taskflows.triage \
@@ -86,7 +74,7 @@ jobs:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           ISSUE_NUMBER: ${{ github.event.issue.number }}
           ISSUE_BODY: ${{ github.event.issue.body }}
-        run: npx tsx lib/scripts/securityTriage/triage.ts
+        run: npx tsx .github/security_triage_taskflow/scripts/triage.ts
   remediate:
     if: github.event.label.name == 'sec:ready-for-remediation'
     permissions: {}
@@ -116,7 +104,7 @@ jobs:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           ISSUE_NUMBER: ${{ github.event.issue.number }}
           ISSUE_BODY: ${{ github.event.issue.body }}
-        run: npx tsx lib/scripts/securityTriage/remediate.ts
+        run: npx tsx .github/security_triage_taskflow/scripts/remediate.ts
       - name: "Upload proposed change"
         if: always()
         uses: actions/upload-artifact@6f51ac03b9356f520e9adb1b1b7802705f340c2b #v4.5.0
@@ -152,4 +140,4 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           ISSUE_NUMBER: ${{ github.event.issue.number }}
-        run: npx tsx lib/scripts/securityTriage/publish.ts
+        run: npx tsx .github/security_triage_taskflow/scripts/publish.ts

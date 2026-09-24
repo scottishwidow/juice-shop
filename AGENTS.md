@@ -29,6 +29,7 @@ This document is the **primary authoritative source** of context for all AI assi
 - `ftp/` - Files served via the simulated FTP directory
 - `monitoring/` - Grafana dashboard config
 - `.github/workflows/` - CI/CD pipelines
+- `.github/security_triage_taskflow/` - Security triage TaskFlow: agent config, `scripts/`, `lib/`, and unit tests in `test/` (run by `npm run test:server`)
 - `encryptionkeys/` - Encryption key files
 
 ## Important Constraints

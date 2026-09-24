@@ -9,6 +9,11 @@ status: accepted
 > deleted, and no longer describe the code. The pins, the package layout and the
 > `capture: response`/`manifest.json` reasoning are unchanged and still current.
 
+> Amended: the package moved from the repository root to `.github/security_triage_taskflow/`,
+> and the TypeScript wrapper scripts, modules and tests moved into it. The package layout
+> section below describes the new location. The record names current TypeScript files by
+> file name only; paths that start with `lib/` name deleted files from the root `lib/`.
+
 ADR-0007 decided to replace `triage` with the SecLab TaskFlow Agent runner and assumed a
 released, mutually compatible pair of `seclab-taskflow-agent` and `seclab-taskflows` versions
 would carry the native Anthropic backend and the container-shell source-access toolbox. That
@@ -53,11 +58,21 @@ Revisit this pin when `seclab-taskflows` cuts a release whose `pyproject.toml` r
 
 ## Package layout
 
-`security_triage_taskflow/` is a plain Python package at the repository root (mirroring `lib/`,
-`routes/` as top-level concerns), resolved by the runner's dotted-module-path convention
+`security_triage_taskflow/` is a plain Python package in `.github/`, next to the workflow that
+runs it, so no part of the security workflow is at the repository root. The runner resolves it
+by its dotted-module-path convention
 (`importlib.resources.files(package).joinpath(filename + '.yaml')` -
 `seclab_taskflow_agent/available_tools.py`), which requires each directory to be an importable
-package rather than a plain file path:
+package rather than a plain file path. `.github` is not a valid Python package name, so the
+module paths stay `security_triage_taskflow.*` and the callers put `.github` on `PYTHONPATH`
+instead of the repository root.
+
+The package also holds the TypeScript side of the workflow, in directories without
+`__init__.py` that the runner never imports: `scripts/` (the `triage`, `remediate` and
+`publish` entry points), `lib/` (the modules they use) and `test/` (their unit tests, run by
+`npm run test:server`).
+
+The runner reads these directories:
 
 - `configs/model_config.yaml` - `anthropic_sdk` backend, `endpoint: https://api.anthropic.com`,
   `token: ANTHROPIC_API_KEY`. The endpoint is `api.anthropic.com`, not GitHub's Copilot CAPI
@@ -68,7 +83,7 @@ package rather than a plain file path:
 - `toolboxes/container_shell_source_access.yaml` - a vendored copy of upstream's toolbox with
   `CONTAINER_IMAGE` pinned to the digest above; everything else (network: none, workspace mount
   via `CONTAINER_WORKSPACE`) is unchanged from upstream. `CONTAINER_WORKSPACE` and `LOG_DIR`
-  are required (no fallback default) - `lib/scripts/securityTriage/triage.ts` always sets both
+  are required (no fallback default) - `triage.ts` always sets both
   before invoking the runner.
 - `personalities/triage_investigator.yaml` - the investigator's system prompt, explicitly told
   that challenge markers and test-path location do not by themselves decide a verdict.
@@ -91,14 +106,14 @@ templating agent-produced free text (which routinely contains quotes, backticks,
 explaining source code) directly into that file is a shell-injection vector on a job that holds
 `issues: write`. This fork does not do that.
 
-Instead, `lib/scripts/securityTriage/triage.ts` reads the run's own session manifest after the
+Instead, `triage.ts` reads the run's own session manifest after the
 `python3 -m seclab_taskflow_agent` process exits: `TaskflowSession.mark_finished()` (and
 `mark_failed()`) already write `<data dir>/artifacts/<session id>/manifest.json`, containing
 `outputs.investigate` - the schema-validated value - as plain JSON
 (`seclab_taskflow_agent/session.py`, `manifest()`, documented as containing "no endpoints or
 secrets"). The wrapper sets `XDG_DATA_HOME` to a fresh temporary directory per run so that
 directory holds exactly one session, and validates what it reads with
-`lib/taskflowVerdict.ts::parseTaskflowVerdict` regardless - a missing or malformed manifest is
+`taskflowVerdict.ts::parseTaskflowVerdict` regardless - a missing or malformed manifest is
 reported as a distinct triage-execution failure, not assumed away.
 
 ## `VerdictPayload` keeps its existing shape
@@ -106,14 +121,14 @@ reported as a distinct triage-execution failure, not assumed away.
 *Superseded by [ADR-0010](0010-taskflow-remediation-implementation.md): `gate`,
 `lib/remediationBrief.ts` and the allow-list are gone, and the coupling flags this section
 treats as a read-shape dependency now have no reader at all. The payload shape itself is
-unchanged, and `lib/trustedVerdict.ts` still selects the comment; what follows is the
+unchanged, and `trustedVerdict.ts` still selects the comment; what follows is the
 reasoning as it stood for issue #30.*
 
 `remediate`/`gate` (unchanged; issue #31's scope) read `triage`'s verdict comment through
-`lib/trustedVerdict.ts` and `lib/verdictPayload.ts`, and `lib/remediationBrief.ts` interpolates
+`trustedVerdict.ts` and `verdictPayload.ts`, and `lib/remediationBrief.ts` interpolates
 `verdict.ruleId`, `.path`, `.verdict` and both coupling flags into the patch author's brief.
 None of that is authorization logic - `gate` recomputes its own allow-list from the base ref -
-so this is purely a read-shape dependency. `lib/verdictPayload.ts` therefore gains only
+so this is purely a read-shape dependency. `verdictPayload.ts` therefore gains only
 optional `reasoning`/`evidence` fields; every existing required field, and `isValidPayload`'s
 validation of them, is unchanged, so a payload without the new fields still decodes and
 `remediate`/`gate` need no changes for issue #30.
@@ -121,14 +136,14 @@ validation of them, is unchanged, so a payload without the new fields still deco
 ## `parseAlertNumber` is retained, not replaced
 
 *Superseded by [ADR-0010](0010-taskflow-remediation-implementation.md), which deleted
-`lib/parseAlertNumber.ts` and moved `remediate` onto `lib/parseAlertUrl.ts`. The consequence
+`lib/parseAlertNumber.ts` and moved `remediate` onto `parseAlertUrl.ts`. The consequence
 described below no longer holds: a demo issue needs only the alert URL, and no `alert #<n>`
 text.*
 
 Issue #29 changes the *triage* input format from a transcribed `alert #<n>` text reference to a
 pasted alert URL. `remediate.ts` and `gate.ts` are unchanged (issue #31's scope) and still call
 `lib/parseAlertNumber.ts` to read `alert #<n>` text from the issue body - so that file is a
-retained caller, not dead code, and stays. `lib/parseAlertUrl.ts` is new, used only by `triage`.
+retained caller, not dead code, and stays. `parseAlertUrl.ts` is new, used only by `triage`.
 The practical consequence, until issue #31 aligns the two: an issue must carry both an alert
 URL (for `triage`) and `alert #<n>` text (for `remediate`/`gate`) to go all the way through the
 demo loop today. Documented in `docs/agents/security-triage.md`.
@@ -145,7 +160,7 @@ Restricting the mount further is not pursued in this pass.
 The credential the job does hold is the concern the mount is not. Unlike `remediate`, `triage`
 both drives a tool-using agent and posts the verdict, so its `GH_TOKEN` (`issues: write`,
 `security-events: read`) is in the job's environment while the agent runs. `agentEnvironment`
-in `lib/scripts/securityTriage/triage.ts` therefore removes `GH_TOKEN` and `GITHUB_TOKEN`
+in `triage.ts` therefore removes `GH_TOKEN` and `GITHUB_TOKEN`
 from the environment handed to the TaskFlow process, so the token stays with the `gh` calls
 the wrapper script makes itself and never reaches the agent's process tree. That is weaker
 than the job boundary ADR-0010 gives remediation, and splitting `triage` into an uncredentialed
@@ -162,7 +177,7 @@ maintainer's post-merge step, by explicit choice, not something this change clai
 
 ## Consequences
 
-`security_triage_taskflow/` and its pinned dependencies are a new, security-relevant supply
+`.github/security_triage_taskflow/` and its pinned dependencies are a new, security-relevant supply
 chain surface: a commit-SHA pin on an unreleased branch instead of a tagged release, and a
 digest pin on a container image this fork does not build. Both are recorded here so they are
 easy to find and revisit, rather than silently drifting. `remediate`, `gate`, its allow-list

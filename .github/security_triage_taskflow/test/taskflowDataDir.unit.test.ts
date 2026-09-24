@@ -7,7 +7,7 @@ import { describe, it } from 'node:test'
 import assert from 'node:assert/strict'
 import { statSync, rmSync } from 'node:fs'
 import path from 'node:path'
-import { createTaskflowDataDir } from '../../lib/taskflowDataDir'
+import { createTaskflowDataDir } from '../lib/taskflowDataDir'
 
 void describe('createTaskflowDataDir', () => {
   void it('creates the log directory the agent opens while importing its modules', () => {
