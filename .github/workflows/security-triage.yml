@@ -103,9 +103,9 @@ jobs:
     # and no attempt tracking (issue #29, user stories 24-25).
     #
     # This job runs the model and holds no write credential of any kind: `permissions: {}`,
-    # and a checkout that persists none either. The agent edits this checkout through the
-    # container-shell toolbox; the diff it leaves behind travels to `publish` as an artifact,
-    # which is the only thing that crosses the credential boundary.
+    # and a checkout that persists none either. The agent edits a copy of this checkout,
+    # outside it, through the container-shell toolbox; the diff it leaves behind travels to
+    # `publish` as an artifact, which is the only thing that crosses the credential boundary.
     if: github.event.label.name == 'sec:ready-for-remediation'
     permissions: {}
     runs-on: ubuntu-latest

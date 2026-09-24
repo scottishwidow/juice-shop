@@ -130,9 +130,14 @@ Implemented in `.github/workflows/security-triage.yml`'s `remediate` job, runnin
 (`security_triage_taskflow/taskflows/remediate.yaml`), per
 [ADR-0010](../adr/0010-taskflow-remediation-implementation.md).
 
-The job checks out current `master` and mounts it into the same official container-shell
-toolbox triage uses. The agent investigates and edits that checkout over many tool calls; the
-fix is whatever it leaves in the working tree. It may change any source or test file,
+The job checks out current `master`. The agent never gets that checkout itself: it is mounted
+into the same official container-shell toolbox triage uses as a separate workspace, copied
+from the checkout's tracked files, with its own throwaway git repository. That keeps the
+agent, which runs as root in the container, from ever writing to the job's own `.git`
+directory - a config setting written there (`core.fsmonitor`, a filter driver) would otherwise
+run as a command on the runner once the job's own git commands read it back. The agent
+investigates and edits the workspace over many tool calls; the fix is whatever it leaves in
+the working tree. It may change any source or test file,
 including an intentionally vulnerable route and the tests that assert the vulnerable
 behavior. There is no per-file allow-list and no challenge-preservation gate: both were
 removed with the bespoke implementation (issue #31; [ADR-0008](../adr/0008-security-demo-scope.md)).
@@ -150,11 +155,13 @@ The job declares `permissions: {}` and checks out with `persist-credentials: fal
 container has no network. No credential of any kind reaches the model-driven side of the
 workflow, so nothing the agent does can reach GitHub by itself.
 
-After the run, `remediate.ts` reads two independent things: the diff, with `git` against the
-checkout the agent edited - excluding the container's own index files and whatever the job's
-dependency install already dirtied, so the change holds only what the agent authored - and the agent's own account of its work, from the TaskFlow
-session's `manifest.json` (`lib/remediationProposal.ts`). The account is a claim, not a
-result - nothing re-runs the checks it reports. Both go to a workflow artifact
+After the run, `remediate.ts` reads two independent things: the diff, and the agent's own
+account of its work. The diff comes from the job's own git directory, diffed against the
+agent's workspace as an external work tree, through a throwaway index - so the job's git
+directory reads and runs nothing from the workspace's `.git`, and the diff holds only what the
+agent authored, excluding the container's own index files. The account comes from the
+TaskFlow session's `manifest.json` (`lib/remediationProposal.ts`). The account is a claim, not
+a result - nothing re-runs the checks it reports. Both go to a workflow artifact
 (`lib/remediationArtifact.ts`), which is the only thing crossing to the credentialed job.
 
 ## Publish job

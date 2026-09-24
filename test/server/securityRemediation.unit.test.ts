@@ -72,25 +72,28 @@ interface RemediationHarnessOverrides {
   taskflow?: TaskflowRunOutcome
   diff?: string
   issueBody?: string
-  dirtyPaths?: string[]
+  workspace?: string
 }
 
 async function remediationHarness (overrides: RemediationHarnessOverrides = {}) {
   const contexts: RemediationContext[] = []
-  const excludedFromDiff: string[][] = []
+  const taskflowWorkspaces: string[] = []
+  const diffedWorkspaces: string[] = []
   const proposals: Array<{ artifact: RemediationProposalArtifact, diff: string }> = []
   const failures: RemediationFailure[] = []
 
+  const workspace = overrides.workspace ?? '/tmp/security-remediation-workspace-stub'
   const dependencies: SecurityRemediationDependencies = {
     fetchComments: async () => overrides.comments ?? [verdictComment()],
     baseCommit: () => CURRENT_MASTER,
-    runTaskflow: context => {
+    prepareWorkspace: () => workspace,
+    runTaskflow: (context, ws) => {
       contexts.push(context)
+      taskflowWorkspaces.push(ws)
       return overrides.taskflow ?? { ok: true, proposal: PROPOSAL }
     },
-    dirtyPaths: () => overrides.dirtyPaths ?? [],
-    collectProposedDiff: preexisting => {
-      excludedFromDiff.push(preexisting)
+    collectProposedDiff: ws => {
+      diffedWorkspaces.push(ws)
       return overrides.diff ?? DIFF
     },
     writeProposal: (artifact, diff) => proposals.push({ artifact, diff }),
@@ -103,7 +106,7 @@ async function remediationHarness (overrides: RemediationHarnessOverrides = {}) 
     issueBody: overrides.issueBody ?? `Please look at ${ALERT_URL}`
   }, dependencies)
 
-  return { published, contexts, proposals, failures, excludedFromDiff }
+  return { published, contexts, proposals, failures, taskflowWorkspaces, diffedWorkspaces }
 }
 
 interface PublishHarnessOverrides {
@@ -287,11 +290,14 @@ void describe('security remediation workflow', () => {
     assert.match(failures[0].detail, /exited with status 1/)
   })
 
-  void it('keeps what the job itself dirtied out of the agent\'s proposed change', async () => {
-    const { published, excludedFromDiff } = await remediationHarness({ dirtyPaths: ['package-lock.json'] })
+  void it('runs the agent and collects the diff against the same prepared workspace', async () => {
+    const { published, taskflowWorkspaces, diffedWorkspaces } = await remediationHarness({
+      workspace: '/tmp/security-remediation-workspace-abc123'
+    })
 
     assert.equal(published, true)
-    assert.deepEqual(excludedFromDiff[0], ['package-lock.json'])
+    assert.deepEqual(taskflowWorkspaces, ['/tmp/security-remediation-workspace-abc123'])
+    assert.deepEqual(diffedWorkspaces, ['/tmp/security-remediation-workspace-abc123'])
   })
 
   void it('records no-change when the agent left the checkout untouched', async () => {

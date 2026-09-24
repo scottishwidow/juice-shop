@@ -20,22 +20,26 @@ cannot read the file it is editing writes diffs that do not apply, and the whole
 that made that workable - the scoped brief, the covering-test excerpts, the allow-list
 embedded in the prompt - existed to compensate for it.
 
-The remediation agent instead gets a writable checkout of current `master`, bind-mounted into
-the same official container-shell toolbox triage uses, and edits it over many tool calls. The
-deliverable is the working tree it leaves behind; `lib/scripts/securityTriage/remediate.ts`
-reads the diff with `git` after the process exits. The agent's captured `capture: response`
-output carries only its account of its own work - a summary and the checks it says it ran -
-which is a claim, published as a claim, and never re-run.
+The remediation agent instead gets a writable workspace, bind-mounted into the same official
+container-shell toolbox triage uses, and edits it over many tool calls. The workspace is a
+copy of current `master`'s tracked files, built with `git checkout-index` from the job's own
+checkout, with its own throwaway git repository so the agent's `git diff` still works inside
+the container. The deliverable is the working tree it leaves behind;
+`lib/scripts/securityTriage/remediate.ts` reads the diff after the process exits, using the
+job's own (never mounted) git directory against the workspace as an external work tree,
+through a throwaway index. The agent's captured `capture: response` output carries only its
+account of its own work - a summary and the checks it says it ran - which is a claim,
+published as a claim, and never re-run.
 
 Two consequences worth naming:
 
-- The diff must hold only what the agent authored. Two things would otherwise ride along:
-  the index files the container's exploration tools (ctags, gtags, cscope) write into the
-  mounted workspace, and whatever the job's own `npm install` already dirtied. Both are
-  excluded by pathspec - the first by name, the second from a `git status` snapshot taken
-  before the agent runs.
+- The diff must hold only what the agent authored. Building the workspace from the index
+  means whatever the job's own `npm install` already dirtied is never in it in the first
+  place. The container's exploration tools (ctags, gtags, cscope) can still write their index
+  files into the workspace, so those are excluded by pathspec when the diff is collected.
 - The mount is read-write, which for triage was a tolerated side effect (ADR-0009) and here
-  is the entire point.
+  is the entire point - but it is a copy, never the job's own checkout, so nothing the agent
+  writes (including its own `.git/config`) is ever read or run by the job's own git commands.
 
 ## No allow-list; an exclusion rule instead
 
