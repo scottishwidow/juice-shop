@@ -1,8 +1,3 @@
-/*
- * Copyright (c) 2014-2026 Bjoern Kimminich & the OWASP Juice Shop contributors.
- * SPDX-License-Identifier: MIT
- */
-
 const URL_PATTERN = /(?:^|[\s(<])(https:\/\/[^\s<>()[\]]+)/gm
 const ALERT_PATH_PATTERN = /^\/([^/]+)\/([^/]+)\/security\/(code-scanning|secret-scanning|dependabot)\/(\d+)\/?$/
 

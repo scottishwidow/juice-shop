@@ -1,8 +1,3 @@
-/*
- * Copyright (c) 2014-2026 Bjoern Kimminich & the OWASP Juice Shop contributors.
- * SPDX-License-Identifier: MIT
- */
-
 import { isValidEvidenceItem, type VerdictEvidenceItem } from './verdictPayload'
 
 const VALID_VERDICTS = ['confirmed', 'not-applicable', 'inconclusive'] as const

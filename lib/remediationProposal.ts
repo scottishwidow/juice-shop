@@ -1,15 +1,3 @@
-/*
- * Copyright (c) 2014-2026 Bjoern Kimminich & the OWASP Juice Shop contributors.
- * SPDX-License-Identifier: MIT
- */
-
-// The remediation agent's structured report, read back from the TaskFlow run's own
-// manifest.json (see lib/scripts/securityTriage/remediate.ts). The proposed code change is
-// not in here: it is the diff the agent left in the mounted checkout. This is only what the
-// agent says it did and what it says it checked, and the check results are its own claims -
-// nothing in the workflow re-runs them, so they are published as reported, attributed to the
-// agent, and never as verified results (issue #31; docs/adr/0010).
-
 const CHECK_RESULTS = ['passed', 'failed', 'not-run'] as const
 
 export type RemediationCheckResult = typeof CHECK_RESULTS[number]

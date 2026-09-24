@@ -1,14 +1,3 @@
-/*
- * Copyright (c) 2014-2026 Bjoern Kimminich & the OWASP Juice Shop contributors.
- * SPDX-License-Identifier: MIT
- */
-
-// The verdict comment carries two independent things: the maintainer-facing prose a human
-// reads and decides from, and this structured payload the workflow reads. They are not the
-// same representation of the same data - the payload is a fenced JSON block inside an HTML
-// comment, invisible when the comment renders, so a maintainer editing the prose for
-// readability cannot touch it and reformatting the prose never breaks the handoff (issue #19).
-
 export interface VerdictEvidenceItem {
   file: string
   lines?: string
@@ -30,7 +19,6 @@ export interface VerdictPayload {
 
 const PAYLOAD_BLOCK = /<!-- security-triage:verdict-payload\n([\s\S]*?)\n-->/g
 
-/** Marks a comment as carrying a verdict payload, for the initial candidate filter. */
 export const VERDICT_PAYLOAD_MARKER = '<!-- security-triage:verdict-payload'
 
 export function isValidEvidenceItem (value: unknown): value is VerdictEvidenceItem {
@@ -72,16 +60,10 @@ function isValidPayload (value: unknown): value is VerdictPayload {
   return true
 }
 
-/** Renders the structured payload as an HTML comment, to be appended to the verdict comment. */
 export function encodeVerdictPayload (payload: VerdictPayload): string {
   return `${VERDICT_PAYLOAD_MARKER}\n${JSON.stringify(payload, null, 2)}\n-->`
 }
 
-/**
- * Reads the structured payload back out of a verdict comment. Independent of the prose
- * wording and layout above it: only the fenced block matters, so a maintainer reformatting
- * the paragraph, or GitHub normalising whitespace, cannot break the handoff.
- */
 export function decodeVerdictPayload (commentBody: string): VerdictPayload | undefined {
   const matches = [...commentBody.matchAll(PAYLOAD_BLOCK)]
   for (let index = matches.length - 1; index >= 0; index--) {

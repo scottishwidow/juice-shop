@@ -1,21 +1,3 @@
-/*
- * Copyright (c) 2014-2026 Bjoern Kimminich & the OWASP Juice Shop contributors.
- * SPDX-License-Identifier: MIT
- */
-
-// CLI script run by the `publish` job in .github/workflows/security-triage.yml.
-//
-// This job holds the workflow's write credentials and makes no model call. It reads the
-// artifact the credential-free `remediate` job produced, applies the proposed diff to its own
-// checkout of the base branch, and - only if nothing excluded was touched - commits, pushes
-// and opens a draft pull request. Nothing from the proposed change is ever executed here:
-// dependencies were installed from the base branch before the diff was read, and no script,
-// test or build from the proposed tree is run. A proposed change therefore cannot alter or
-// borrow the authority that publishes it (issue #31).
-//
-// Every outcome is reported on the originating issue, including the ones that open no pull
-// request; an attempt that produced nothing never becomes an empty pull request.
-
 import { execFileSync } from 'node:child_process'
 import { mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -42,8 +24,6 @@ import {
   type AttemptIdentity
 } from '../../remediationPr'
 
-// Must match `models.claude` in security_triage_taskflow/configs/model_config.yaml; the
-// pull request body states it as the AI disclosure. Asserted by modelConfig.unit.test.ts.
 export const MODEL = 'claude-sonnet-5'
 
 function requireEnv (name: string): string {
@@ -77,7 +57,6 @@ export interface PublishInput {
 
 export interface PublishDependencies {
   readArtifact: () => RemediationArtifact
-  /** Stages the proposed diff on a fresh branch; false when it does not apply. */
   applyOnBranch: (branch: string, diff: string) => boolean
   stagedPaths: () => string[]
   discard: () => void
@@ -127,8 +106,6 @@ function defaultDependencies (input: PublishInput): PublishDependencies {
       '--body-file', options.bodyPath
     ]).trim(),
     writeBody: body => {
-      // A fresh private directory per run, rather than a predictable name in the shared temp
-      // directory: nothing else can pre-create or swap the file `gh --body-file` then reads.
       const bodyPath = path.join(mkdtempSync(path.join(tmpdir(), 'remediation-pr-')), 'body.md')
       writeFileSync(bodyPath, body)
       return bodyPath
@@ -177,10 +154,6 @@ function publishProposal (
 
   const destination = remediationDestination(repo)
 
-  // Pushing and opening the pull request are the two steps that can fail for reasons outside
-  // the proposed change - a blocked credential, a repository policy, GitHub being down. They
-  // are caught here so the issue still gets a comment: a job that dies with a stack trace
-  // reports nothing to the person who applied the label (issue #32).
   let branchPushed = false
   try {
     dependencies.commitAndPush(branch, remediationCommitMessage(artifact.alert))
@@ -200,8 +173,6 @@ function publishProposal (
       bodyPath,
       base: destination.base,
       repo: destination.repo,
-      // Always a draft: no check on this change has been verified by anything, so it is never
-      // presented as ready to merge (docs/agents/issue-tracker.md, PR compliance step 5).
       draft: true
     })
 
@@ -214,11 +185,6 @@ function publishProposal (
   }
 }
 
-/**
- * The reported text is the failing command's stderr where there is one, because that carries
- * the reason GitHub gave. No credential reaches it: the token is passed to `gh` and `git`
- * through the environment, never in the arguments an error message repeats.
- */
 function describePublishError (error: unknown, pushedBranch: string | undefined): string {
   const stderr = (error as { stderr?: unknown }).stderr
   const reported = typeof stderr === 'string' && stderr.trim() !== ''

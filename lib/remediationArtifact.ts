@@ -1,23 +1,8 @@
-/*
- * Copyright (c) 2014-2026 Bjoern Kimminich & the OWASP Juice Shop contributors.
- * SPDX-License-Identifier: MIT
- */
-
-// The only thing that crosses from the credential-free `remediate` job to the credentialed
-// `publish` job: a workflow artifact holding either a proposed change or the reason there is
-// none. `remediate` holds no token and cannot comment, label, commit or push, so it cannot
-// report its own outcome; `publish` reads this and does the reporting (issue #31).
-//
-// Everything here is data. The diff is applied by `publish` and never executed, and the
-// agent-written `summary`/`checks` only ever reach a file passed to `gh --body-file` or an
-// argv-passed comment body, never a shell string.
-
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 
 import type { RemediationProposal } from './remediationProposal'
 
-// The directory the `remediate` job writes and uploads, and the `publish` job downloads.
 export const REMEDIATION_OUTPUT_DIR = 'remediation-output'
 
 export const PROPOSAL_FILE = 'proposal.json'
@@ -119,12 +104,6 @@ function parse (raw: string | undefined): unknown {
   }
 }
 
-/**
- * Reads whichever of the two outcomes the `remediate` job wrote. A failure takes precedence
- * over a proposal: a run that recorded a reason for stopping did not also produce a change
- * worth publishing. A directory holding neither - the job crashed before writing anything -
- * reads as `missing` rather than as an empty proposal.
- */
 export function readRemediationArtifact (directory: string): RemediationArtifact {
   const failure = parse(readFile(directory, FAILURE_FILE))
   if (isFailure(failure)) {

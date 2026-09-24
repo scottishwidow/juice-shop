@@ -1,21 +1,6 @@
-/*
- * Copyright (c) 2014-2026 Bjoern Kimminich & the OWASP Juice Shop contributors.
- * SPDX-License-Identifier: MIT
- */
-
-// Everything the `publish` job writes to GitHub, as pure text: the branch it pushes, the
-// commit identity it signs off as, and the pull request a human reads before merging.
-//
-// The demo publishes a fix PR even when checks failed or never ran (issue #29, user story 22),
-// so the honesty burden sits here: the body reports the agent's own claims as the agent's own
-// claims, states plainly that this workflow verified none of them, and never marks the
-// Affirmation. The PR stays a draft for the same reason.
-
 import { describeRemediationFailure, type RemediationAlert, type RemediationFailureReason, type RemediationProposalArtifact } from './remediationArtifact'
 import type { RemediationCheck } from './remediationProposal'
 
-// The workflow's GITHUB_TOKEN identity: the only identity the publishing job can commit and
-// sign off as, and one a human authorized by applying the remediation label.
 export const REMEDIATION_COMMIT_IDENTITY = {
   name: 'github-actions[bot]',
   email: '41898282+github-actions[bot]@users.noreply.github.com'
@@ -28,11 +13,6 @@ export interface AttemptIdentity {
   runAttempt: string
 }
 
-/**
- * One branch per attempt, so removing and reapplying the label publishes another pull
- * request instead of colliding with the previous one. No deduplication is intended: the
- * demo owner accepts duplicate PRs (issue #29, user story 25).
- */
 export function remediationBranchName (alertNumber: number, attempt: AttemptIdentity): string {
   return `security/alert-${alertNumber}-run-${attempt.runId}-${attempt.runAttempt}`
 }
@@ -75,11 +55,6 @@ export interface PrDestination {
 
 const UPSTREAM_REPO = 'juice-shop/juice-shop'
 
-/**
- * Where a remediation pull request goes. This fork bases on `master`; upstream bases on
- * `develop` (docs/agents/issue-tracker.md). Always passed explicitly to `gh`, never left to
- * the default branch of whatever repository the job happens to run in.
- */
 export function remediationDestination (repo: string): PrDestination {
   return { repo, base: repo === UPSTREAM_REPO ? 'develop' : 'master' }
 }
@@ -149,11 +124,6 @@ export interface FailureCommentInput {
   runLink: string
 }
 
-/**
- * What a maintainer sees when an attempt produced no pull request. Says which stage stopped
- * and links the run, so a failure is never mistaken for a completed remediation - and never
- * dressed up as an empty pull request.
- */
 export function buildFailureComment (input: FailureCommentInput): string {
   const { reason, detail, runLink } = input
   const sections = [
