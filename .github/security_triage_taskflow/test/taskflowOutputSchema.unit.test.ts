@@ -10,7 +10,7 @@ import path from 'node:path'
 import yaml from 'js-yaml'
 
 // A taskflow's output schema validates the agent's final message inside the runner, and a
-// rejection there exits the run before lib/taskflowVerdict.ts or lib/remediationProposal.ts
+// rejection there exits the run before taskflowVerdict.ts or remediationProposal.ts
 // sees anything. Both parsers ignore properties they do not declare, so a schema that closes
 // additional properties discards a result the workflow could have published (issue #32).
 
@@ -30,7 +30,7 @@ function nodesOf (value: unknown): Array<Record<string, unknown>> {
 void describe('taskflow output schemas', () => {
   for (const taskflow of TASKFLOWS) {
     void it(`keeps ${taskflow} no stricter than the parser that consumes it`, () => {
-      const taskflowPath = path.resolve(__dirname, `../../security_triage_taskflow/taskflows/${taskflow}.yaml`)
+      const taskflowPath = path.resolve(__dirname, `../taskflows/${taskflow}.yaml`)
       const document = yaml.load(readFileSync(taskflowPath, 'utf8'))
 
       const closed = nodesOf(document).filter((node) => node.additionalProperties === false)

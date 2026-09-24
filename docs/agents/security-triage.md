@@ -55,6 +55,9 @@ every resource they reference.
 
 ## Jobs
 
+The jobs run code from `.github/security_triage_taskflow/`. Paths in the sections below
+that start with `scripts/`, `lib/` or `taskflows/` are relative to that directory.
+
 `triage`/`remediate`/`publish` are triggered by `on: issues: types: [labeled]`.
 `lint-taskflow` also runs on `push`/`pull_request` for paths touching the taskflow
 configuration, independent of any label and with no secrets.
@@ -76,7 +79,7 @@ two are separated by a job boundary.
 
 `triage` is the one job on both sides of that line: it runs a tool-using agent and posts the
 verdict with its own `GH_TOKEN`. Its write permission is comment and label changes only, and
-`agentEnvironment` (`lib/scripts/securityTriage/triage.ts`) removes `GH_TOKEN`/`GITHUB_TOKEN`
+`agentEnvironment` (`scripts/triage.ts`) removes `GH_TOKEN`/`GITHUB_TOKEN`
 from the environment the TaskFlow process is given, so the token stays with the `gh` calls the
 wrapper script makes itself. That is weaker than a job boundary; splitting `triage` the way
 `remediate`/`publish` are split is the way to close it
@@ -85,8 +88,8 @@ wrapper script makes itself. That is weaker than a job boundary; splitting `tria
 ## Triage job
 
 Implemented in `.github/workflows/security-triage.yml`, running
-`lib/scripts/securityTriage/triage.ts` and the SecLab TaskFlow Agent runner
-(`security_triage_taskflow/`), per [ADR-0007](../adr/0007-taskflow-security-workflows.md) and
+`scripts/triage.ts` and the SecLab TaskFlow Agent runner
+(`.github/security_triage_taskflow/`), per [ADR-0007](../adr/0007-taskflow-security-workflows.md) and
 [ADR-0009](../adr/0009-taskflow-triage-implementation.md).
 
 The human-pasted issue body must contain exactly one same-repository code-scanning alert URL
@@ -109,10 +112,9 @@ paragraph does not affect the payload; a maintainer editing the comment for read
 break the handoff.
 
 The verdict is now derived by an agent that investigates the checked-out base ref (`master`)
-through the official container-shell MCP toolbox (`security_triage_taskflow/taskflows/
-triage.yaml`), not decided mechanically before the model runs - `lib/couplingEvidence.ts`
-(formerly `lib/triageVerdict.ts`) still computes the same challenge-marker/test-path signals,
-but only as investigative context handed to the agent and informational evidence in the
+through the official container-shell MCP toolbox (`taskflows/triage.yaml`), not decided
+mechanically before the model runs - `lib/couplingEvidence.ts` (formerly `lib/triageVerdict.ts`
+at the repository root) still computes the same challenge-marker/test-path signals, but only as investigative context handed to the agent and informational evidence in the
 payload; it no longer predetermines the verdict (issue #30 acceptance criteria; see
 [ADR-0001](../adr/0001-mechanical-coupling-detection.md) for the superseded mechanical
 approach and [ADR-0004](../adr/0004-triage-model-call-has-no-tools.md) for the superseded
@@ -126,8 +128,8 @@ produces a distinct visible comment instead and leaves the label unchanged.
 ## Remediation job
 
 Implemented in `.github/workflows/security-triage.yml`'s `remediate` job, running
-`lib/scripts/securityTriage/remediate.ts` and the SecLab TaskFlow Agent runner
-(`security_triage_taskflow/taskflows/remediate.yaml`), per
+`scripts/remediate.ts` and the SecLab TaskFlow Agent runner
+(`taskflows/remediate.yaml`), per
 [ADR-0010](../adr/0010-taskflow-remediation-implementation.md).
 
 The job checks out current `master`. The agent does not get this checkout. It gets a
@@ -180,7 +182,7 @@ to the credentialed job.
 ## Publish job
 
 Implemented in `.github/workflows/security-triage.yml`'s `publish` job, running
-`lib/scripts/securityTriage/publish.ts`. It holds the workflow's write credentials
+`scripts/publish.ts`. It holds the workflow's write credentials
 (`contents: write`, `pull-requests: write`, `issues: write`) and makes no model call.
 
 It installs dependencies from `master` before it reads the proposed change, and runs no
@@ -194,7 +196,7 @@ touches once applied (`lib/excludedPaths.ts`):
 | --- | --- |
 | workflow | `.github/`, `.husky/` |
 | credential | `encryptionkeys/`, `.env*`, `*.pem`/`*.key`/`*.pfx`/`*.p12`/`*.jks`/`*.keystore` |
-| authorization policy | `security_triage_taskflow/`, `lib/scripts/securityTriage/`, and the modules deciding what is trusted and published (`lib/excludedPaths.ts`, `lib/trustedVerdict.ts`, `lib/verdictPayload.ts`, `lib/issueComments.ts`, `lib/parseAlertUrl.ts`, `lib/taskflowVerdict.ts`, `lib/remediationArtifact.ts`, `lib/remediationPr.ts`, `lib/remediationProposal.ts`) |
+| authorization policy | `.github/security_triage_taskflow/` - the taskflow, the scripts, and the modules deciding what is trusted and published - and a root-level `security_triage_taskflow/`, which Python would import first |
 
 A change touching any of them is rejected in full, with the rejected paths named in a comment
 on the issue. Nothing partial is published.

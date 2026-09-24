@@ -11,9 +11,9 @@ import {
   fetchIssueCommentsAuthenticated,
   fetchIssueCommentsUnauthenticated,
   type FetchImpl
-} from '../../lib/issueComments'
-import { selectTrustedVerdict } from '../../lib/trustedVerdict'
-import { encodeVerdictPayload } from '../../lib/verdictPayload'
+} from '../lib/issueComments'
+import { selectTrustedVerdict } from '../lib/trustedVerdict'
+import { encodeVerdictPayload } from '../lib/verdictPayload'
 
 function jsonResponse (body: unknown, linkHeader?: string): Awaited<ReturnType<FetchImpl>> {
   return {

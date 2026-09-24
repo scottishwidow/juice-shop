@@ -5,7 +5,7 @@
 
 import { describe, it } from 'node:test'
 import assert from 'node:assert/strict'
-import { parseAlertUrl } from '../../lib/parseAlertUrl'
+import { parseAlertUrl } from '../lib/parseAlertUrl'
 
 const REPO = 'scottishwidow/juice-shop'
 const ALERT_URL = `https://github.com/${REPO}/security/code-scanning/6`

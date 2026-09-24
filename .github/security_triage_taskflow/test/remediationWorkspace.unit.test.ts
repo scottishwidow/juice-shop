@@ -15,7 +15,7 @@ import {
   prepareAgentWorkspace,
   type ProposedDiffOutcome,
   type RunGit
-} from '../../lib/scripts/securityTriage/remediate'
+} from '../scripts/remediate'
 
 const COMMITTER = ['-c', 'user.name=job', '-c', 'user.email=job@localhost', '-c', 'commit.gpgsign=false']
 

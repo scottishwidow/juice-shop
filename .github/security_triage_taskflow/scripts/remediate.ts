@@ -4,9 +4,10 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 
-import { createTaskflowDataDir } from '../../taskflowDataDir'
-import { fetchIssueCommentsUnauthenticated } from '../../issueComments'
-import { parseAlertUrl, describeAlertUrlFailure } from '../../parseAlertUrl'
+import { createTaskflowDataDir } from '../lib/taskflowDataDir'
+import { taskflowPythonPath } from '../lib/taskflowPackage'
+import { fetchIssueCommentsUnauthenticated } from '../lib/issueComments'
+import { parseAlertUrl, describeAlertUrlFailure } from '../lib/parseAlertUrl'
 import {
   REMEDIATION_OUTPUT_DIR,
   writeRemediationFailure,
@@ -14,14 +15,14 @@ import {
   type RemediationAlert,
   type RemediationFailure,
   type RemediationProposalArtifact
-} from '../../remediationArtifact'
+} from '../lib/remediationArtifact'
 import {
   describeRemediationProposalFailure,
   parseRemediationProposal,
   type RemediationProposal
-} from '../../remediationProposal'
-import { describeVerdictRefusal, selectTrustedVerdict, type IssueComment } from '../../trustedVerdict'
-import type { VerdictPayload } from '../../verdictPayload'
+} from '../lib/remediationProposal'
+import { describeVerdictRefusal, selectTrustedVerdict, type IssueComment } from '../lib/trustedVerdict'
+import type { VerdictPayload } from '../lib/verdictPayload'
 
 const SOURCE_INDEX_ARTIFACTS = ['tags', 'GPATH', 'GRTAGS', 'GTAGS', 'cscope.out', 'cscope.in.out', 'cscope.po.out']
 
@@ -83,7 +84,7 @@ export function runTaskflow (
       CONTAINER_WORKSPACE: workspace,
       LOG_DIR: path.join(dataDir, 'logs'),
       XDG_DATA_HOME: dataDir,
-      PYTHONPATH: [process.cwd(), process.env.PYTHONPATH].filter(Boolean).join(path.delimiter)
+      PYTHONPATH: taskflowPythonPath()
     }
   })
 

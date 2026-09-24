@@ -3,6 +3,8 @@
  * SPDX-License-Identifier: MIT
  */
 
+import { TASKFLOW_PACKAGE_NAME, TASKFLOW_PACKAGE_PATH } from './taskflowPackage'
+
 // The one rule the remediation agent cannot edit its way around. There is no allow-list any
 // more (issue #31): the agent may change any source or test file, including an intentional
 // Juice Shop vulnerability. What it may never change is the machinery that decides whether
@@ -28,37 +30,20 @@ function underAny (...prefixes: string[]): (path: string) => boolean {
   return path => prefixes.some(prefix => path === prefix || path.startsWith(`${prefix}/`))
 }
 
-function oneOf (...paths: string[]): (path: string) => boolean {
-  const exact = new Set(paths)
-  return path => exact.has(path)
-}
-
 const CREDENTIAL_FILE = /(^|\/)(\.env[^/]*|[^/]*\.(pem|key|pfx|p12|jks|keystore))$/i
 
 const RULES: ExclusionRule[] = [
+  // The security workflow's own decision-making code: the taskflow and personality that
+  // instruct the agent, the scripts that publish its work, and the modules that decide what
+  // is trusted and what is excluded. It sits under .github/, so this rule must precede the
+  // workflow rule to keep its category. The runner starts from the repository root, where
+  // Python finds a package before any PYTHONPATH entry, so a root copy is excluded as well.
+  { category: 'authorization-policy', matches: underAny(TASKFLOW_PACKAGE_PATH, TASKFLOW_PACKAGE_NAME) },
   // Workflow and CI definitions, including the workflow that runs this remediation.
   { category: 'workflow', matches: underAny('.github', '.husky') },
   // Anything that is, or reads, a key.
   { category: 'credential', matches: underAny('encryptionkeys') },
-  { category: 'credential', matches: path => CREDENTIAL_FILE.test(path) },
-  // The security workflow's own decision-making code: the taskflow and personality that
-  // instruct the agent, the scripts that publish its work, and the modules that decide what
-  // is trusted and what is excluded.
-  { category: 'authorization-policy', matches: underAny('security_triage_taskflow', 'lib/scripts/securityTriage') },
-  {
-    category: 'authorization-policy',
-    matches: oneOf(
-      'lib/excludedPaths.ts',
-      'lib/issueComments.ts',
-      'lib/parseAlertUrl.ts',
-      'lib/remediationArtifact.ts',
-      'lib/remediationPr.ts',
-      'lib/remediationProposal.ts',
-      'lib/taskflowVerdict.ts',
-      'lib/trustedVerdict.ts',
-      'lib/verdictPayload.ts'
-    )
-  }
+  { category: 'credential', matches: path => CREDENTIAL_FILE.test(path) }
 ]
 
 /** Every excluded path in the proposed change, with the category that excludes it. */

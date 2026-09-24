@@ -15,8 +15,8 @@ import {
   runTaskflow,
   type SecurityTriageDependencies,
   type TaskflowRunOutcome
-} from '../../lib/scripts/securityTriage/triage'
-import { decodeVerdictPayload, encodeVerdictPayload } from '../../lib/verdictPayload'
+} from '../scripts/triage'
+import { decodeVerdictPayload, encodeVerdictPayload } from '../lib/verdictPayload'
 
 const REPO = 'scottishwidow/juice-shop'
 const ALERT_URL = `https://github.com/${REPO}/security/code-scanning/6`
@@ -60,7 +60,7 @@ function triageHarness (overrides: Partial<SecurityTriageDependencies> = {}) {
 
 void describe('security triage workflow', () => {
   void it('runs only when the needs-triage label is applied', () => {
-    const workflow = yaml.load(readFileSync('.github/workflows/security-triage.yml', 'utf8')) as {
+    const workflow = yaml.load(readFileSync(path.resolve(__dirname, '../../workflows/security-triage.yml'), 'utf8')) as {
       jobs: { triage: { if: string } }
     }
 

@@ -6,8 +6,8 @@
 import { describe, it } from 'node:test'
 import assert from 'node:assert/strict'
 
-import { selectTrustedVerdict, type IssueComment } from '../../lib/trustedVerdict'
-import { encodeVerdictPayload, type VerdictPayload } from '../../lib/verdictPayload'
+import { selectTrustedVerdict, type IssueComment } from '../lib/trustedVerdict'
+import { encodeVerdictPayload, type VerdictPayload } from '../lib/verdictPayload'
 
 const BASE_COMMIT = '5bc7ce9292a2237e64771a8b2b71b3df730d0800'
 const OTHER_COMMIT = '0000000000000000000000000000000000000000'

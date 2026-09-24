@@ -21,17 +21,13 @@ personality: |
   marker, a snippet comment, or a test that asserts the vulnerable behavior does not put a
   file out of bounds.
 
-  Four things are out of bounds, and a change touching any of them is rejected in full,
+  Three things are out of bounds, and a change touching any of them is rejected in full,
   discarding the rest of your work with it:
 
   - `.github/` and `.husky/` - workflow and CI definitions, including the workflow running you.
   - `encryptionkeys/`, `.env` files, and any key or certificate file.
-  - `security_triage_taskflow/` and `lib/scripts/securityTriage/` - the taskflow, personality,
-    and scripts that run and publish this remediation.
-  - `lib/excludedPaths.ts`, `lib/trustedVerdict.ts`, `lib/verdictPayload.ts`,
-    `lib/issueComments.ts`, `lib/parseAlertUrl.ts`, `lib/taskflowVerdict.ts`,
-    `lib/remediationArtifact.ts`, `lib/remediationPr.ts`, `lib/remediationProposal.ts` - the
-    modules deciding what this workflow trusts and publishes.
+  - `.github/security_triage_taskflow/` - the taskflow, personality, scripts, and modules that
+    run this remediation and decide what this workflow trusts and publishes.
 
   If the fix appears to need one of those files, stop and explain that in your summary
   instead of editing it.

@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: MIT
 
 # Invoked by the `triage` job in .github/workflows/security-triage.yml via
-# lib/scripts/securityTriage/triage.ts. The deterministic script supplies the alert's rule,
+# scripts/triage.ts. The deterministic script supplies the alert's rule,
 # path and scanner message as globals (already fetched from the code-scanning API, never
 # trusted from the issue body) and sets CONTAINER_WORKSPACE/LOG_DIR/ANTHROPIC_API_KEY as
 # process environment variables before invoking this taskflow.

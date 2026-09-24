@@ -3,11 +3,12 @@ import { readFileSync, existsSync, readdirSync } from 'node:fs'
 import path from 'node:path'
 import process from 'node:process'
 
-import { createTaskflowDataDir } from '../../taskflowDataDir'
-import { parseAlertUrl, describeAlertUrlFailure } from '../../parseAlertUrl'
-import { computeCouplingEvidence } from '../../couplingEvidence'
-import { encodeVerdictPayload, type VerdictPayload } from '../../verdictPayload'
-import { parseTaskflowVerdict, describeTaskflowVerdictFailure, type TaskflowVerdict } from '../../taskflowVerdict'
+import { createTaskflowDataDir } from '../lib/taskflowDataDir'
+import { taskflowPythonPath } from '../lib/taskflowPackage'
+import { parseAlertUrl, describeAlertUrlFailure } from '../lib/parseAlertUrl'
+import { computeCouplingEvidence } from '../lib/couplingEvidence'
+import { encodeVerdictPayload, type VerdictPayload } from '../lib/verdictPayload'
+import { parseTaskflowVerdict, describeTaskflowVerdictFailure, type TaskflowVerdict } from '../lib/taskflowVerdict'
 
 export interface AlertDetail {
   ruleId: string
@@ -67,7 +68,7 @@ export function agentEnvironment (dataDir: string): NodeJS.ProcessEnv {
     CONTAINER_WORKSPACE: process.cwd(),
     LOG_DIR: path.join(dataDir, 'logs'),
     XDG_DATA_HOME: dataDir,
-    PYTHONPATH: [process.cwd(), process.env.PYTHONPATH].filter(Boolean).join(path.delimiter)
+    PYTHONPATH: taskflowPythonPath()
   }
   for (const name of PUBLISHING_CREDENTIAL_VARIABLES) {
     delete environment[name]

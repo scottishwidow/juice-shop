@@ -5,7 +5,7 @@
 
 import { describe, it } from 'node:test'
 import assert from 'node:assert/strict'
-import { parseTaskflowVerdict } from '../../lib/taskflowVerdict'
+import { parseTaskflowVerdict } from '../lib/taskflowVerdict'
 
 const VALID = {
   verdict: 'confirmed',

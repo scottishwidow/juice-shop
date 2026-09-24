@@ -6,7 +6,7 @@
 import { describe, it } from 'node:test'
 import assert from 'node:assert/strict'
 
-import { describeRemediationProposalFailure, parseRemediationProposal } from '../../lib/remediationProposal'
+import { describeRemediationProposalFailure, parseRemediationProposal } from '../lib/remediationProposal'
 
 void describe('remediation agent report', () => {
   void it('accepts a report that names every check it ran and every check it could not', () => {
