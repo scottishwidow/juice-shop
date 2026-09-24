@@ -16,6 +16,7 @@ export type RemediationFailureReason =
   | 'invalid-agent-output'
   | 'no-change'
   | 'excluded-changes'
+  | 'nested-repository'
   | 'diff-not-applicable'
   | 'missing-artifact'
   | 'publish-error'
@@ -131,6 +132,8 @@ const FAILURE_DESCRIPTIONS: Record<RemediationFailureReason, string> = {
     'publish. No empty pull request was opened.',
   'excluded-changes': 'The proposed change touches paths that automatic remediation may ' +
     'never change, so none of it was published.',
+  'nested-repository': 'The remediation agent created a git repository inside its workspace. ' +
+    'A diff cannot hold the contents of a nested repository, so none of the change was published.',
   'diff-not-applicable': 'The proposed change did not apply to the publishing checkout of ' +
     '`master`.',
   'missing-artifact': 'The remediation job produced neither a proposed change nor a reason ' +

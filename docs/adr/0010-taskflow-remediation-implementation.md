@@ -2,6 +2,11 @@
 status: accepted
 ---
 
+> Amended for issue #50. The first version of this decision mounted the job checkout,
+> including its `.git` directory, into the container. It excluded the paths that the job had
+> changed with a `git status` snapshot. The agent could then write a git config that the git
+> of the runner read and ran. The agent now edits a separate workspace, as described below.
+
 # TaskFlow remediation: an edited checkout, an exclusion rule, and a credential boundary
 
 ADR-0009 replaced `triage` with the SecLab TaskFlow Agent runner and left `remediate`/`gate`
@@ -20,22 +25,28 @@ cannot read the file it is editing writes diffs that do not apply, and the whole
 that made that workable - the scoped brief, the covering-test excerpts, the allow-list
 embedded in the prompt - existed to compensate for it.
 
-The remediation agent instead gets a writable checkout of current `master`, bind-mounted into
-the same official container-shell toolbox triage uses, and edits it over many tool calls. The
-deliverable is the working tree it leaves behind; `lib/scripts/securityTriage/remediate.ts`
-reads the diff with `git` after the process exits. The agent's captured `capture: response`
-output carries only its account of its own work - a summary and the checks it says it ran -
-which is a claim, published as a claim, and never re-run.
+The remediation agent instead gets a writable workspace. It is mounted into the same official
+container-shell toolbox triage uses, and the agent edits it over many tool calls. The
+workspace is a copy of the tracked files of current `master`, made with `git checkout-index`.
+It has its own throwaway git repository, so `git diff` works for the agent in the container.
 
-Two consequences worth naming:
+The deliverable is the working tree the agent leaves behind. After the process exits,
+`lib/scripts/securityTriage/remediate.ts` reads the diff. It uses the git directory of the
+job, which is never mounted, with the workspace as an external work tree and a throwaway
+index. The agent's `capture: response` output holds only its account of its work: a summary
+and the checks it says it ran. This is a claim. It is published as a claim, and nothing runs
+it again.
 
-- The diff must hold only what the agent authored. Two things would otherwise ride along:
-  the index files the container's exploration tools (ctags, gtags, cscope) write into the
-  mounted workspace, and whatever the job's own `npm install` already dirtied. Both are
-  excluded by pathspec - the first by name, the second from a `git status` snapshot taken
-  before the agent runs.
-- The mount is read-write, which for triage was a tolerated side effect (ADR-0009) and here
-  is the entire point.
+Consequences:
+
+- The diff must hold only what the agent wrote. The workspace comes from the index, so what
+  the job's `npm install` changed is not in it. The container's exploration tools (ctags,
+  gtags, cscope) can write index files into the workspace. A pathspec excludes them from the
+  diff.
+- The mount is read-write. For triage this was a tolerated side effect (ADR-0009). Here it is
+  the purpose. But the git of the runner must not use what the agent wrote. It does not read
+  the `.git` at the root of the work tree. It reads attributes from `HEAD`, not from the
+  workspace. It refuses a nested repository and does not run git on it.
 
 ## No allow-list; an exclusion rule instead
 

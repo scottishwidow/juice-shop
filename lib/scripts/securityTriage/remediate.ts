@@ -1,5 +1,6 @@
 import { execFileSync, spawnSync } from 'node:child_process'
-import { existsSync, readdirSync, readFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 
@@ -32,8 +33,15 @@ function requireEnv (name: string): string {
   return value
 }
 
-function git (args: string[]): string {
-  return execFileSync('git', args, { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 })
+export interface GitOptions {
+  cwd?: string
+  env?: NodeJS.ProcessEnv
+}
+
+export type RunGit = (args: string[], options?: GitOptions) => string
+
+function git (args: string[], options: GitOptions = {}): string {
+  return execFileSync('git', args, { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024, ...options })
 }
 
 function baseCommit (): string {
@@ -52,6 +60,7 @@ export type TaskflowRunOutcome =
 
 export function runTaskflow (
   context: RemediationContext,
+  workspace: string,
   spawnTaskflow: typeof spawnSync = spawnSync
 ): TaskflowRunOutcome {
   const dataDir = createTaskflowDataDir('security-remediation-taskflow-')
@@ -71,7 +80,7 @@ export function runTaskflow (
     env: {
       ...process.env,
       ANTHROPIC_API_KEY: requireEnv('ANTHROPIC_API_KEY'),
-      CONTAINER_WORKSPACE: process.cwd(),
+      CONTAINER_WORKSPACE: workspace,
       LOG_DIR: path.join(dataDir, 'logs'),
       XDG_DATA_HOME: dataDir,
       PYTHONPATH: [process.cwd(), process.env.PYTHONPATH].filter(Boolean).join(path.delimiter)
@@ -129,20 +138,63 @@ function readManifest (artifactsRoot: string): RunManifest | undefined {
   }
 }
 
-export function dirtyPaths (runGit: (args: string[]) => string = git): string[] {
-  return runGit(['status', '--porcelain', '--untracked-files=all'])
-    .split('\n')
-    .filter(line => line.length > 3)
-    .map(line => line.slice(3).trim())
+export function prepareAgentWorkspace (runGit: RunGit = git): string {
+  const workspace = mkdtempSync(path.join(tmpdir(), 'security-remediation-workspace-'))
+  runGit(['checkout-index', '-a', '-f', `--prefix=${workspace}${path.sep}`])
+  runGit(['init', '-q'], { cwd: workspace })
+  runGit(['add', '-A', '--force'], { cwd: workspace })
+  runGit([
+    '-c', 'user.name=security-remediation-agent',
+    '-c', 'user.email=security-remediation-agent@localhost',
+    '-c', 'commit.gpgsign=false',
+    'commit', '-q', '--no-verify', '-m', 'baseline'
+  ], { cwd: workspace })
+  return workspace
 }
 
-export function collectProposedDiff (
-  preexisting: string[] = [],
-  runGit: (args: string[]) => string = git
-): string {
-  const excludes = [...SOURCE_INDEX_ARTIFACTS, ...preexisting].map(name => `:(exclude)${name}`)
-  runGit(['add', '-A', '--', '.', ...excludes])
-  return runGit(['diff', '--cached', '--binary', 'HEAD'])
+export type ProposedDiffOutcome =
+  | { ok: true, diff: string }
+  | { ok: false, nestedRepositories: string[] }
+
+export function collectProposedDiff (workspace: string, runGit: RunGit = git): ProposedDiffOutcome {
+  const nestedRepositories = findNestedRepositories(workspace)
+  if (nestedRepositories.length > 0) {
+    return { ok: false, nestedRepositories }
+  }
+
+  const indexDir = mkdtempSync(path.join(tmpdir(), 'security-remediation-index-'))
+  try {
+    const env = { ...process.env, GIT_INDEX_FILE: path.join(indexDir, 'index') }
+    const workTreeGit = [
+      '-c', 'core.fsmonitor=false', '-c', 'core.hooksPath=/dev/null',
+      '--attr-source=HEAD', `--work-tree=${workspace}`
+    ]
+    const excludes = SOURCE_INDEX_ARTIFACTS.map(name => `:(exclude)${name}`)
+
+    runGit(['read-tree', 'HEAD'], { env })
+    runGit([...workTreeGit, 'add', '-A', '--', '.', ...excludes], { env })
+    return { ok: true, diff: runGit([...workTreeGit, 'diff', '--cached', '--binary', 'HEAD'], { env }) }
+  } finally {
+    rmSync(indexDir, { recursive: true, force: true })
+  }
+}
+
+function findNestedRepositories (workspace: string): string[] {
+  const found: string[] = []
+  const visit = (dir: string): void => {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      const entryPath = path.join(dir, entry.name)
+      if (entry.name === '.git') {
+        if (dir !== workspace) {
+          found.push(path.relative(workspace, entryPath))
+        }
+      } else if (entry.isDirectory()) {
+        visit(entryPath)
+      }
+    }
+  }
+  visit(workspace)
+  return found
 }
 
 function assessmentText (verdict: VerdictPayload): string {
@@ -160,9 +212,9 @@ export interface SecurityRemediationInput {
 export interface SecurityRemediationDependencies {
   fetchComments: (repo: string, issueNumber: string) => Promise<IssueComment[]>
   baseCommit: () => string
-  runTaskflow: (context: RemediationContext) => TaskflowRunOutcome
-  dirtyPaths: () => string[]
-  collectProposedDiff: (preexisting: string[]) => string
+  prepareWorkspace: () => string
+  runTaskflow: (context: RemediationContext, workspace: string) => TaskflowRunOutcome
+  collectProposedDiff: (workspace: string) => ProposedDiffOutcome
   writeProposal: (artifact: RemediationProposalArtifact, diff: string) => void
   writeFailure: (failure: RemediationFailure) => void
 }
@@ -170,9 +222,9 @@ export interface SecurityRemediationDependencies {
 const DEFAULT_DEPENDENCIES: SecurityRemediationDependencies = {
   fetchComments: fetchIssueCommentsUnauthenticated,
   baseCommit,
-  runTaskflow: context => runTaskflow(context),
-  dirtyPaths: () => dirtyPaths(),
-  collectProposedDiff: preexisting => collectProposedDiff(preexisting),
+  prepareWorkspace: () => prepareAgentWorkspace(),
+  runTaskflow: (context, workspace) => runTaskflow(context, workspace),
+  collectProposedDiff: workspace => collectProposedDiff(workspace),
   writeProposal: (artifact, diff) => { writeRemediationProposal(REMEDIATION_OUTPUT_DIR, artifact, diff) },
   writeFailure: failure => { writeRemediationFailure(REMEDIATION_OUTPUT_DIR, failure) }
 }
@@ -210,18 +262,27 @@ export async function runSecurityRemediation (
     path: verdict.path
   }
 
-  const preexisting = dependencies.dirtyPaths()
+  const workspace = dependencies.prepareWorkspace()
   const outcome = dependencies.runTaskflow({
     alert,
     verdict: verdict.verdict,
     assessment: assessmentText(verdict)
-  })
+  }, workspace)
   if (!outcome.ok) {
     dependencies.writeFailure({ reason: 'taskflow-failed', detail: outcome.reason })
     return false
   }
 
-  const diff = dependencies.collectProposedDiff(preexisting)
+  const collected = dependencies.collectProposedDiff(workspace)
+  if (!collected.ok) {
+    dependencies.writeFailure({
+      reason: 'nested-repository',
+      detail: `The agent created a git repository inside its workspace: ${collected.nestedRepositories.join(', ')}.`
+    })
+    return false
+  }
+
+  const diff = collected.diff
   if (diff.trim() === '') {
     dependencies.writeFailure({
       reason: 'no-change',
