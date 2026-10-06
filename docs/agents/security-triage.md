@@ -125,6 +125,10 @@ The workflow script, not the model, posts the comment and swaps `sec:needs-triag
 `sec:triaged`, using the job's own `issues: write` permission; a parsing or execution failure
 produces a distinct visible comment instead and leaves the label unchanged.
 
+The agent does not get the job's checkout. It gets an isolated copy of the tracked files and
+of the installed `node_modules`, with its own throwaway git repository
+(`lib/agentWorkspace.ts`, shared with `remediate`). Nothing reads the copy after the run.
+
 ## Remediation job
 
 Implemented in `.github/workflows/security-triage.yml`'s `remediate` job, running

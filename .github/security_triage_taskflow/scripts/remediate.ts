@@ -1,9 +1,10 @@
-import { execFileSync, spawnSync } from 'node:child_process'
+import { spawnSync } from 'node:child_process'
 import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 
+import { git, prepareAgentWorkspace, type RunGit } from '../lib/agentWorkspace'
 import { createTaskflowDataDir } from '../lib/taskflowDataDir'
 import { taskflowPythonPath } from '../lib/taskflowPackage'
 import { fetchIssueCommentsUnauthenticated } from '../lib/issueComments'
@@ -32,17 +33,6 @@ function requireEnv (name: string): string {
     throw new Error(`Missing required environment variable ${name}`)
   }
   return value
-}
-
-export interface GitOptions {
-  cwd?: string
-  env?: NodeJS.ProcessEnv
-}
-
-export type RunGit = (args: string[], options?: GitOptions) => string
-
-function git (args: string[], options: GitOptions = {}): string {
-  return execFileSync('git', args, { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024, ...options })
 }
 
 function baseCommit (): string {
@@ -137,20 +127,6 @@ function readManifest (artifactsRoot: string): RunManifest | undefined {
   } catch {
     return undefined
   }
-}
-
-export function prepareAgentWorkspace (runGit: RunGit = git): string {
-  const workspace = mkdtempSync(path.join(tmpdir(), 'security-remediation-workspace-'))
-  runGit(['checkout-index', '-a', '-f', `--prefix=${workspace}${path.sep}`])
-  runGit(['init', '-q'], { cwd: workspace })
-  runGit(['add', '-A', '--force'], { cwd: workspace })
-  runGit([
-    '-c', 'user.name=security-remediation-agent',
-    '-c', 'user.email=security-remediation-agent@localhost',
-    '-c', 'commit.gpgsign=false',
-    'commit', '-q', '--no-verify', '-m', 'baseline'
-  ], { cwd: workspace })
-  return workspace
 }
 
 export type ProposedDiffOutcome =

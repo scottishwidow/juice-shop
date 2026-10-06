@@ -35,6 +35,8 @@ const VERDICT: TaskflowRunOutcome = {
   }
 }
 
+const AGENT_WORKSPACE = '/tmp/security-agent-workspace-test'
+
 function triageHarness (overrides: Partial<SecurityTriageDependencies> = {}) {
   const comments: string[] = []
   let triaged = false
@@ -42,6 +44,7 @@ function triageHarness (overrides: Partial<SecurityTriageDependencies> = {}) {
     fetchAlertDetail: () => ALERT,
     readBaseRefFile: () => '',
     baseCommit: () => BASE_COMMIT,
+    prepareWorkspace: () => AGENT_WORKSPACE,
     runTaskflow: () => VERDICT,
     comment: (_issueNumber, _repo, body) => comments.push(body),
     markTriaged: () => { triaged = true },
@@ -91,6 +94,19 @@ void describe('security triage workflow', () => {
     assert.equal(run.triaged, true)
   })
 
+  void it('runs the agent over the prepared isolated workspace', () => {
+    let mounted: string | undefined
+    const run = triageHarness({
+      runTaskflow: (_alert, _alertNumber, workspace) => {
+        mounted = workspace
+        return VERDICT
+      }
+    })
+
+    assert.equal(run.success, true)
+    assert.equal(mounted, AGENT_WORKSPACE)
+  })
+
   void it('comments with the workflow run when the alert cannot be read', () => {
     const run = triageHarness({ fetchAlertDetail: () => { throw new Error('forbidden') } })
 
@@ -127,7 +143,7 @@ void describe('security triage workflow', () => {
     }) as unknown as typeof spawnSync
 
     try {
-      assert.deepEqual(runTaskflow(ALERT, 6, fakeSpawn), {
+      assert.deepEqual(runTaskflow(ALERT, 6, AGENT_WORKSPACE, fakeSpawn), {
         ok: false,
         reason: 'The TaskFlow process exited with status 7.'
       })
@@ -159,7 +175,8 @@ void describe('security triage workflow', () => {
     }) as unknown as typeof spawnSync
 
     try {
-      assert.deepEqual(runTaskflow(ALERT, 6, fakeSpawn), VERDICT)
+      assert.deepEqual(runTaskflow(ALERT, 6, AGENT_WORKSPACE, fakeSpawn), VERDICT)
+      assert.equal(captured.CONTAINER_WORKSPACE, AGENT_WORKSPACE)
       assert.equal(captured.GH_TOKEN, undefined)
       assert.equal(captured.GITHUB_TOKEN, undefined)
       assert.equal(captured.ANTHROPIC_API_KEY, 'test-key')
