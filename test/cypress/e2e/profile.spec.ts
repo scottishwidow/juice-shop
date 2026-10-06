@@ -3,7 +3,7 @@ describe('/profile', () => {
     cy.login({ email: 'admin', password: 'admin123' })
   })
   describe('challenge "ssrfChallenge"', () => {
-    it('should be possible to request internal resources using image upload URL', () => {
+    it('should not be possible to request internal resources using image upload URL anymore', () => {
       cy.visit('/profile')
 
       cy.get('#url').type(
@@ -11,7 +11,11 @@ describe('/profile', () => {
       )
       cy.get('#submitUrl').click()
       cy.visit('/')
-      cy.expectChallengeSolved({ challenge: 'SSRF' })
+      cy.wait(2000)
+      cy.request({ method: 'GET', url: '/api/Challenges/?name=SSRF' }).then((response) => {
+        const challenge = response.body.data[0]
+        expect(challenge.solved).to.equal(false)
+      })
     })
   })
 
