@@ -43,12 +43,12 @@ export function selectTrustedVerdict (comments: IssueComment[], expected: Expect
 
   const trusted = verdictComments.filter(comment =>
     comment.user?.login === TRIAGE_AUTHOR_LOGIN && comment.user?.type === 'Bot')
-  const latest = trusted[trusted.length - 1]
-  if (latest === undefined) {
+  if (trusted.length === 0) {
     return { selected: false, reason: 'untrusted-verdict-author' }
   }
 
-  const verdict = decodeVerdictPayload(latest.body as string)
+  const decoded = trusted.flatMap(comment => decodeVerdictPayload(comment.body as string) ?? [])
+  const verdict = decoded[decoded.length - 1]
   if (verdict === undefined) {
     return { selected: false, reason: 'malformed-verdict-comment' }
   }

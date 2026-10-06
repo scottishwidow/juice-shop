@@ -17,9 +17,9 @@ export interface VerdictPayload {
   evidence?: VerdictEvidenceItem[]
 }
 
-const PAYLOAD_BLOCK = /<!-- security-triage:verdict-payload\n([\s\S]*?)\n-->/g
-
 export const VERDICT_PAYLOAD_MARKER = '<!-- security-triage:verdict-payload'
+
+const TRAILING_PAYLOAD_BODY = /^\n([\s\S]*?)\n-->\s*$/
 
 export function isValidEvidenceItem (value: unknown): value is VerdictEvidenceItem {
   if (typeof value !== 'object' || value === null) {
@@ -64,17 +64,21 @@ export function encodeVerdictPayload (payload: VerdictPayload): string {
   return `${VERDICT_PAYLOAD_MARKER}\n${JSON.stringify(payload, null, 2)}\n-->`
 }
 
+// Only a payload that ends the comment counts: workflow comments that quote agent text end with
+// fixed text. JSON.stringify escapes newlines, so the payload cannot contain the marker + "\n".
 export function decodeVerdictPayload (commentBody: string): VerdictPayload | undefined {
-  const matches = [...commentBody.matchAll(PAYLOAD_BLOCK)]
-  for (let index = matches.length - 1; index >= 0; index--) {
-    try {
-      const parsed: unknown = JSON.parse(matches[index][1])
-      if (isValidPayload(parsed)) {
-        return parsed
-      }
-    } catch {
-      continue
-    }
+  const start = commentBody.lastIndexOf(`${VERDICT_PAYLOAD_MARKER}\n`)
+  if (start === -1) {
+    return undefined
   }
-  return undefined
+  const block = TRAILING_PAYLOAD_BODY.exec(commentBody.slice(start + VERDICT_PAYLOAD_MARKER.length))
+  if (block === null) {
+    return undefined
+  }
+  try {
+    const parsed: unknown = JSON.parse(block[1])
+    return isValidPayload(parsed) ? parsed : undefined
+  } catch {
+    return undefined
+  }
 }

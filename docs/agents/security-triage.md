@@ -129,6 +129,11 @@ The agent does not get the job's checkout. It gets an isolated copy of the track
 of the installed `node_modules`, with its own throwaway git repository
 (`lib/agentWorkspace.ts`, shared with `remediate`). Nothing reads the copy after the run.
 
+Only a payload at the end of a comment is read. The verdict comment ends with its payload. Every
+other comment the workflow posts ends with fixed text, so a payload inside quoted agent text,
+such as the agent summary in a `no-change` failure comment, is never read as a verdict. If the
+latest workflow comment with the marker does not decode, the latest one that does is used.
+
 ## Remediation job
 
 Implemented in `.github/workflows/security-triage.yml`'s `remediate` job, running
