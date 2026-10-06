@@ -148,16 +148,17 @@ The practical consequence, until issue #31 aligns the two: an issue must carry b
 URL (for `triage`) and `alert #<n>` text (for `remediate`/`gate`) to go all the way through the
 demo loop today. Documented in `docs/agents/security-triage.md`.
 
-## Mount write access is not restricted, and the job's own credential is withheld instead
+## The agent gets an isolated copy, and the job's own credential is withheld
 
-The container-shell source-access toolbox bind-mounts `CONTAINER_WORKSPACE` read-write (upstream
-does not offer a read-only mount option), so a shell command the agent runs could in principle
-modify or delete files in the `triage` job's checkout. Nothing in the workspace is published:
-`contents: write` is not granted, the checkout uses `persist-credentials: false`,
-`CONTAINER_NETWORK: none` blocks egress, and the runner VM is discarded at the end of the job.
-Restricting the mount further is not pursued in this pass.
+The container-shell source-access toolbox bind-mounts `CONTAINER_WORKSPACE` read-write, and
+upstream offers no read-only mount option. The agent therefore does not get the job's checkout.
+`triage.ts` gives it the same isolated workspace `remediate` uses
+(`lib/agentWorkspace.ts`): a copy of the tracked files with its own throwaway git repository,
+plus a copy of the installed `node_modules` so the agent can read library source. The agent can
+write to this copy, but nothing reads it after the run. The job's own `.git` directory and
+scripts are not mounted, so an agent edit cannot reach a later `git` or `gh` call of the job.
 
-The credential the job does hold is the concern the mount is not. Unlike `remediate`, `triage`
+The credential the job holds is a separate concern. Unlike `remediate`, `triage`
 both drives a tool-using agent and posts the verdict, so its `GH_TOKEN` (`issues: write`,
 `security-events: read`) is in the job's environment while the agent runs. `agentEnvironment`
 in `triage.ts` therefore removes `GH_TOKEN` and `GITHUB_TOKEN`

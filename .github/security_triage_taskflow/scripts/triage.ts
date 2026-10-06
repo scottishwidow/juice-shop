@@ -3,6 +3,7 @@ import { readFileSync, existsSync, readdirSync } from 'node:fs'
 import path from 'node:path'
 import process from 'node:process'
 
+import { copyInstalledDependencies, prepareAgentWorkspace } from '../lib/agentWorkspace'
 import { createTaskflowDataDir } from '../lib/taskflowDataDir'
 import { taskflowPythonPath } from '../lib/taskflowPackage'
 import { parseAlertUrl, describeAlertUrlFailure } from '../lib/parseAlertUrl'
@@ -61,11 +62,11 @@ function baseCommit (): string {
 
 const PUBLISHING_CREDENTIAL_VARIABLES = ['GH_TOKEN', 'GITHUB_TOKEN']
 
-export function agentEnvironment (dataDir: string): NodeJS.ProcessEnv {
+export function agentEnvironment (dataDir: string, workspace: string): NodeJS.ProcessEnv {
   const environment: NodeJS.ProcessEnv = {
     ...process.env,
     ANTHROPIC_API_KEY: requireEnv('ANTHROPIC_API_KEY'),
-    CONTAINER_WORKSPACE: process.cwd(),
+    CONTAINER_WORKSPACE: workspace,
     LOG_DIR: path.join(dataDir, 'logs'),
     XDG_DATA_HOME: dataDir,
     PYTHONPATH: taskflowPythonPath()
@@ -83,6 +84,7 @@ export type TaskflowRunOutcome =
 export function runTaskflow (
   alert: AlertDetail,
   alertNumber: number,
+  workspace: string,
   spawnTaskflow: typeof spawnSync = spawnSync
 ): TaskflowRunOutcome {
   const dataDir = createTaskflowDataDir('security-triage-taskflow-')
@@ -97,7 +99,7 @@ export function runTaskflow (
     '-g', `message=${alert.message}`
   ], {
     encoding: 'utf8',
-    env: agentEnvironment(dataDir)
+    env: agentEnvironment(dataDir, workspace)
   })
 
   if (result.error !== undefined) {
@@ -182,7 +184,8 @@ export interface SecurityTriageDependencies {
   fetchAlertDetail: (repo: string, alertNumber: number) => AlertDetail
   readBaseRefFile: (path: string) => string | undefined
   baseCommit: () => string
-  runTaskflow: (alert: AlertDetail, alertNumber: number) => TaskflowRunOutcome
+  prepareWorkspace: () => string
+  runTaskflow: (alert: AlertDetail, alertNumber: number, workspace: string) => TaskflowRunOutcome
   comment: (issueNumber: string, repo: string, body: string) => void
   markTriaged: (issueNumber: string, repo: string) => void
 }
@@ -191,7 +194,12 @@ const DEFAULT_DEPENDENCIES: SecurityTriageDependencies = {
   fetchAlertDetail,
   readBaseRefFile,
   baseCommit,
-  runTaskflow,
+  prepareWorkspace: () => {
+    const workspace = prepareAgentWorkspace()
+    copyInstalledDependencies(workspace)
+    return workspace
+  },
+  runTaskflow: (alert, alertNumber, workspace) => runTaskflow(alert, alertNumber, workspace),
   comment: (issueNumber, repo, body) => {
     gh(['issue', 'comment', issueNumber, '--repo', repo, '--body', body])
   },
@@ -233,7 +241,7 @@ export function runSecurityTriage (
   const evidence = computeCouplingEvidence(alert.path, dependencies.readBaseRefFile)
   const base = dependencies.baseCommit()
 
-  const outcome = dependencies.runTaskflow(alert, alertNumber)
+  const outcome = dependencies.runTaskflow(alert, alertNumber, dependencies.prepareWorkspace())
   if (!outcome.ok) {
     dependencies.comment(issueNumber, repo, failureComment(
       `Triage execution failed for alert #${alertNumber}: ${outcome.reason}`,

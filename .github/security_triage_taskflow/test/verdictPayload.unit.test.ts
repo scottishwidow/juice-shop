@@ -94,4 +94,20 @@ void describe('encodeVerdictPayload / decodeVerdictPayload', () => {
 
     assert.deepEqual(decodeVerdictPayload(body), PAYLOAD)
   })
+
+  void it('uses the final payload when untrusted prose contains an unclosed payload marker', () => {
+    const body = `<!-- security-triage:verdict-payload\nUntrusted model prose.\n\n${encodeVerdictPayload(PAYLOAD)}`
+
+    assert.deepEqual(decodeVerdictPayload(body), PAYLOAD)
+  })
+
+  void it('returns undefined when text follows the payload', () => {
+    const body = `Untrusted model prose.\n\n${encodeVerdictPayload(PAYLOAD)}\n\nWorkflow run: https://example.test`
+
+    assert.equal(decodeVerdictPayload(body), undefined)
+  })
+
+  void it('accepts trailing whitespace after the payload', () => {
+    assert.deepEqual(decodeVerdictPayload(`${encodeVerdictPayload(PAYLOAD)}\n\n`), PAYLOAD)
+  })
 })

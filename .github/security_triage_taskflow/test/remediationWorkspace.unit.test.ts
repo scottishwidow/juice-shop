@@ -10,12 +10,8 @@ import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realp
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 
-import {
-  collectProposedDiff,
-  prepareAgentWorkspace,
-  type ProposedDiffOutcome,
-  type RunGit
-} from '../scripts/remediate'
+import { prepareAgentWorkspace, type RunGit } from '../lib/agentWorkspace'
+import { collectProposedDiff, type ProposedDiffOutcome } from '../scripts/remediate'
 
 const COMMITTER = ['-c', 'user.name=job', '-c', 'user.email=job@localhost', '-c', 'commit.gpgsign=false']
 

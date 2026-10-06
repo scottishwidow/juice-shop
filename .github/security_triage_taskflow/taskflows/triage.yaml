@@ -40,7 +40,7 @@ taskflow:
 
         Scanner message: {{ globals.message }}
 
-        The repository is mounted read-only for your investigation at /workspace. Investigate
+        An isolated copy of the repository is mounted for your investigation at /workspace. Investigate
         the flagged location and the code that reaches it, then report your verdict.
 
         Your final message must be exactly one JSON object matching this shape, and nothing
