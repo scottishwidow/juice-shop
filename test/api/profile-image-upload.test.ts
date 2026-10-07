@@ -3,17 +3,16 @@
  * SPDX-License-Identifier: MIT
  */
 
-import { describe, it, before, after } from 'node:test'
+import { describe, it, before, after, mock } from 'node:test'
 import assert from 'node:assert/strict'
 import request from 'supertest'
 import type { Express } from 'express'
 import config from 'config'
 import path from 'node:path'
-import http from 'node:http'
 import fs from 'node:fs'
-import { type AddressInfo } from 'node:net'
 import { createTestApp } from './helpers/setup'
 import { login } from './helpers/auth'
+import { isSafeImageUrl } from '../../routes/profileImageUrlUpload'
 
 let app: Express
 
@@ -149,11 +148,48 @@ void describe('/profile/image/url', () => {
   })
 })
 
-void describe('/profile/image/url (with local mock server)', () => {
-  let mockServer: http.Server
-  let mockPort: number
+void describe('isSafeImageUrl (SSRF protection)', () => {
+  void it('allows plain http(s) URLs pointing to public hostnames', () => {
+    assert.equal(isSafeImageUrl('https://example.com/cat.jpg'), true)
+    assert.equal(isSafeImageUrl('http://cataas.com/cat'), true)
+  })
+
+  void it('rejects non-http(s) schemes', () => {
+    assert.equal(isSafeImageUrl('file:///etc/passwd'), false)
+    assert.equal(isSafeImageUrl('ftp://example.com/cat.jpg'), false)
+    assert.equal(isSafeImageUrl('gopher://example.com/cat.jpg'), false)
+  })
+
+  void it('rejects unparsable URLs', () => {
+    assert.equal(isSafeImageUrl('not a url'), false)
+    assert.equal(isSafeImageUrl('cataas.com/cat'), false)
+  })
+
+  void it('rejects localhost and loopback addresses', () => {
+    assert.equal(isSafeImageUrl('http://localhost/photo.jpg'), false)
+    assert.equal(isSafeImageUrl('http://127.0.0.1/photo.jpg'), false)
+    assert.equal(isSafeImageUrl('http://[::1]/photo.jpg'), false)
+  })
+
+  void it('rejects the cloud metadata address and other private/reserved IPv4 ranges', () => {
+    assert.equal(isSafeImageUrl('http://169.254.169.254/latest/meta-data/'), false)
+    assert.equal(isSafeImageUrl('http://10.0.0.5/photo.jpg'), false)
+    assert.equal(isSafeImageUrl('http://172.16.0.5/photo.jpg'), false)
+    assert.equal(isSafeImageUrl('http://192.168.1.5/photo.jpg'), false)
+    assert.equal(isSafeImageUrl('http://0.0.0.0/photo.jpg'), false)
+  })
+
+  void it('rejects private/link-local IPv6 addresses', () => {
+    assert.equal(isSafeImageUrl('http://[fe80::1]/photo.jpg'), false)
+    assert.equal(isSafeImageUrl('http://[fc00::1]/photo.jpg'), false)
+    assert.equal(isSafeImageUrl('http://[::ffff:127.0.0.1]/photo.jpg'), false)
+  })
+})
+
+void describe('/profile/image/url (with mocked fetch target)', () => {
   let token: string
   let userId: number
+  let originalFetch: typeof fetch
 
   before(async () => {
     const { token: userToken } = await login(app, {
@@ -162,57 +198,63 @@ void describe('/profile/image/url (with local mock server)', () => {
     })
     token = userToken
     userId = JSON.parse(Buffer.from(token.split('.')[1], 'base64url').toString()).data.id
+  })
 
-    const imageBuffer = fs.readFileSync(path.resolve(__dirname, '../files/validProfileImage.jpg'))
+  before(() => {
+    originalFetch = global.fetch
+  })
 
-    mockServer = http.createServer((req, res) => {
-      if (req.url?.includes('non-ok')) {
-        res.statusCode = 404
-        res.end()
-      } else if (req.url?.includes('no-body')) {
-        res.statusCode = 204
-        res.end()
-      } else {
-        res.statusCode = 200
-        res.setHeader('Content-Type', 'image/jpeg')
-        res.end(imageBuffer)
+  after(() => {
+    global.fetch = originalFetch
+  })
+
+  function mockFetchWith (imageBuffer: Buffer) {
+    (global as any).fetch = mock.fn(async (input: string | URL) => {
+      const url = input.toString()
+      if (url.includes('non-ok')) {
+        return new Response(null, { status: 404 })
       }
+      if (url.includes('no-body')) {
+        return new Response(null, { status: 204 })
+      }
+      return new Response(imageBuffer, { status: 200 })
     })
-    await new Promise<void>((resolve) => { mockServer.listen(0, resolve) })
-    mockPort = (mockServer.address() as AddressInfo).port
-  })
-
-  after(async () => {
-    await new Promise<void>((resolve, reject) => {
-      mockServer.close((err) => { err != null ? reject(err) : resolve() })
-    })
-  })
+  }
 
   void it('POST with non-OK response falls back to storing URL as profile image', async () => {
+    const imageBuffer = fs.readFileSync(path.resolve(__dirname, '../files/validProfileImage.jpg'))
+    mockFetchWith(imageBuffer)
+
     const res = await request(app)
       .post('/profile/image/url')
       .set('Cookie', `token=${token}`)
-      .field('imageUrl', `http://localhost:${mockPort}/non-ok.jpg`)
+      .field('imageUrl', 'https://example.com/non-ok.jpg')
       .redirects(0)
 
     assert.equal(res.status, 302)
   })
 
   void it('POST with empty-body response (204) falls back to storing URL as profile image', async () => {
+    const imageBuffer = fs.readFileSync(path.resolve(__dirname, '../files/validProfileImage.jpg'))
+    mockFetchWith(imageBuffer)
+
     const res = await request(app)
       .post('/profile/image/url')
       .set('Cookie', `token=${token}`)
-      .field('imageUrl', `http://localhost:${mockPort}/no-body.jpg`)
+      .field('imageUrl', 'https://example.com/no-body.jpg')
       .redirects(0)
 
     assert.equal(res.status, 302)
   })
 
   void it('POST with valid response writes file and redirects to profile', async () => {
+    const imageBuffer = fs.readFileSync(path.resolve(__dirname, '../files/validProfileImage.jpg'))
+    mockFetchWith(imageBuffer)
+
     const res = await request(app)
       .post('/profile/image/url')
       .set('Cookie', `token=${token}`)
-      .field('imageUrl', `http://localhost:${mockPort}/photo.jpg`)
+      .field('imageUrl', 'https://example.com/photo.jpg')
       .redirects(0)
 
     assert.equal(res.status, 302)
@@ -220,10 +262,13 @@ void describe('/profile/image/url (with local mock server)', () => {
   })
 
   void it('POST with PNG URL extension saves file using PNG extension', async () => {
+    const imageBuffer = fs.readFileSync(path.resolve(__dirname, '../files/validProfileImage.jpg'))
+    mockFetchWith(imageBuffer)
+
     await request(app)
       .post('/profile/image/url')
       .set('Cookie', `token=${token}`)
-      .field('imageUrl', `http://localhost:${mockPort}/photo.png`)
+      .field('imageUrl', 'https://example.com/photo.png')
       .redirects(0)
 
     assert.ok(
@@ -233,15 +278,32 @@ void describe('/profile/image/url (with local mock server)', () => {
   })
 
   void it('POST with unrecognised URL extension defaults to JPG extension', async () => {
+    const imageBuffer = fs.readFileSync(path.resolve(__dirname, '../files/validProfileImage.jpg'))
+    mockFetchWith(imageBuffer)
+
     await request(app)
       .post('/profile/image/url')
       .set('Cookie', `token=${token}`)
-      .field('imageUrl', `http://localhost:${mockPort}/photo.bmp`)
+      .field('imageUrl', 'https://example.com/photo.bmp')
       .redirects(0)
 
     assert.ok(
       fs.existsSync(`frontend/dist/frontend/assets/public/images/uploads/${userId}.jpg`),
       `Expected file frontend/dist/frontend/assets/public/images/uploads/${userId}.jpg to exist`
     )
+  })
+
+  void it('POST with a URL targeting a private/internal address falls back without making a request', async () => {
+    const fetchMock = mock.fn(async () => new Response(Buffer.from('should never be called'), { status: 200 }))
+    ;(global as any).fetch = fetchMock
+
+    const res = await request(app)
+      .post('/profile/image/url')
+      .set('Cookie', `token=${token}`)
+      .field('imageUrl', 'http://127.0.0.1:1/internal.jpg')
+      .redirects(0)
+
+    assert.equal(res.status, 302)
+    assert.equal(fetchMock.mock.calls.length, 0)
   })
 })
