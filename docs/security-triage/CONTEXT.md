@@ -31,3 +31,14 @@ It does not authorize merging the fix.
 **Security fix**:
 A proposed code change that addresses the selected security alert and is submitted for
 human review in a pull request.
+
+**Demo**:
+The security triage workflow optimized to show the flow from alert to fix pull request. It
+omits validation gates, accepts stale triage verdicts, and allows duplicate fix pull requests.
+_Avoid_: PoC
+
+**PoC**:
+The client-grade security triage workflow. Its triage verdicts and security fixes are
+measured against ground truth, and each security fix is confirmed by an oracle outside the
+patch.
+_Avoid_: Demo
