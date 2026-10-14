@@ -3,8 +3,8 @@
 
 # Invoked by the `triage` job in .github/workflows/security-triage.yml via
 # scripts/triage.ts. The deterministic script supplies the alert's rule,
-# path and scanner message as globals (already fetched from the code-scanning API, never
-# trusted from the issue body) and sets CONTAINER_WORKSPACE/LOG_DIR/ANTHROPIC_API_KEY as
+# path and scanner message as globals (fetched from the code-scanning API by the `read-alert`
+# job, never trusted from the issue body) and sets CONTAINER_WORKSPACE/LOG_DIR/ANTHROPIC_API_KEY as
 # process environment variables before invoking this taskflow.
 #
 # The `investigate` task's structured verdict is captured via `capture: response` (the agent's
