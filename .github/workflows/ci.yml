@@ -4,6 +4,7 @@ on:
     branches-ignore:
       - l10n_develop
       - gh-pages
+      - 'security/alert-*'
     paths-ignore:
       - '*.md'
       - 'LICENSE'
@@ -12,6 +13,7 @@ on:
     tags-ignore:
       - '*'
   pull_request:
+    types: [opened, synchronize, reopened, labeled]
     paths-ignore:
       - '*.md'
       - 'LICENSE'
@@ -23,6 +25,13 @@ env:
   CYCLONEDX_NPM_VERSION: '^2.0.0||^3.0.0||^4.0.0'   # keep in sync with package.json
 jobs:
   lint:
+    # Remediation agent branches run no job until a human applies sec:ci-approved: their code would otherwise run with the CI secrets.
+    if: &approved-source >-
+      github.event_name != 'pull_request' ||
+      (!startsWith(github.head_ref, 'security/alert-') && github.event.action != 'labeled') ||
+      (startsWith(github.head_ref, 'security/alert-') &&
+      contains(github.event.pull_request.labels.*.name, 'sec:ci-approved') &&
+      (github.event.action != 'labeled' || github.event.label.name == 'sec:ci-approved'))
     runs-on: ubuntu-latest
     steps:
       - name: "Check out Git repository"
@@ -39,6 +48,7 @@ jobs:
       - name: "Lint source code"
         run: npm run lint
   coding-challenge-rsn:
+    if: *approved-source
     runs-on: ubuntu-latest
     steps:
       - name: "Check out Git repository"
@@ -52,6 +62,7 @@ jobs:
       - name: "Check coding challenges for accidental code discrepancies"
         run: npm run rsn
   frontend-test:
+    if: *approved-source
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
@@ -91,6 +102,7 @@ jobs:
           path: |
             frontend-lcov.info
   server-test:
+    if: *approved-source
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
@@ -128,6 +140,7 @@ jobs:
           path: |
             server-lcov.info
   api-test:
+    if: *approved-source
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
@@ -190,6 +203,7 @@ jobs:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           files: frontend-lcov.info server-lcov.info api-lcov.info
   custom-config-test:
+    if: *approved-source
     runs-on: ubuntu-latest
     steps:
       - name: "Check out Git repository"
@@ -218,6 +232,7 @@ jobs:
             NODE_ENV=tutorial npm run test:server &&
             NODE_ENV=unsafe npm run test:server
   e2e-test:
+    if: *approved-source
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
@@ -250,6 +265,7 @@ jobs:
           CYPRESS_RECORD_KEY: ${{ secrets.CYPRESS_RECORD_KEY }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
   smoke-test:
+    if: *approved-source
     runs-on: ubuntu-latest
     env:
       TYPESCRIPT_VERSION: '^6.0.3' # keep in sync with package.json
@@ -287,6 +303,7 @@ jobs:
           chmod +x test/smoke/smoke-test.sh
           test/smoke/smoke-test.sh http://localhost:3000
   docker-test:
+    if: *approved-source
     runs-on: ubuntu-latest
     steps:
       - name: "Check out Git repository"
