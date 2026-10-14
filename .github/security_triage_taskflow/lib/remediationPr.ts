@@ -98,9 +98,6 @@ export function buildPrBody (input: PrBodyInput): string {
     '',
     validationSection(artifact.proposal.checks),
     '',
-    'CI does not run on this branch until a maintainer has read the diff and applies ' +
-    '`sec:ci-approved`. CI jobs run the proposed code with the repository secrets.',
-    '',
     '### AI Tool Disclosure',
     '',
     '- [x] My contribution includes AI-generated content, as disclosed below:',

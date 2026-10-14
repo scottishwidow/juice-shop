@@ -27,7 +27,6 @@ A human pastes one same-repository code-scanning alert URL into an issue and app
 | `sec:needs-triage` | human | starts `read-alert`, `triage` and `post-verdict` |
 | `sec:triaged` | `post-verdict` job | verdict comment posted; `sec:needs-triage` removed |
 | `sec:ready-for-remediation` | human | starts `remediate` and `publish` |
-| `sec:ci-approved` | human, on the draft pull request | lets `ci.yml` run on the remediation branch |
 
 The verdict (`confirmed`, `not-applicable`, `inconclusive`) is written in the comment body, not
 encoded as a label. Only a label applied by a human causes a write to the codebase. Both jobs
@@ -45,8 +44,7 @@ deduplicated or tracked, and a failed attempt sets no label that blocks the next
 4. Read the verdict comment. Triage stops there, whatever the verdict is.
 5. Apply `sec:ready-for-remediation` to authorize a fix attempt. The `remediate` and
    `publish` jobs start.
-6. Review the draft pull request. To run CI on it, apply `sec:ci-approved` after the review.
-   Merging it is a human decision and closes the issue.
+6. Review the draft pull request. Merging it is a human decision and closes the issue.
 
 Each label is applied by a human. Step 5 is optional: a `not-applicable` or `inconclusive`
 verdict can be the end of the run. To retry either half, remove and reapply its label.
@@ -219,13 +217,6 @@ pushes it to an attempt-specific branch (`security/alert-<n>-run-<run id>-<attem
 opens a draft pull request against `master` (`develop` upstream). One branch per attempt is
 deliberate: removing and reapplying `sec:ready-for-remediation` publishes another pull
 request, with no deduplication and no attempt tracking.
-
-The branch is in this repository, so its pull request runs `ci.yml` with the repository
-secrets. Those jobs run `npm install` with install scripts, the tests and the Cypress specs of
-the proposed tree. Thus every `ci.yml` job skips a `security/alert-*` pull request until a
-human reads the diff and applies `sec:ci-approved` to it. `ci.yml` also ignores pushes to
-these branches. Apply the label only after review: it lets the code of the agent run with the
-secrets.
 
 ## Publication is not validation
 
