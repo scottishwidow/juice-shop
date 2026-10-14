@@ -20,6 +20,7 @@ import {
   type PublishDependencies,
   type PublishInput
 } from '../scripts/publish'
+import { remediationBranchName } from '../lib/remediationPr'
 import { encodeVerdictPayload } from '../lib/verdictPayload'
 import type { IssueComment } from '../lib/trustedVerdict'
 import type { RemediationArtifact, RemediationFailure, RemediationProposalArtifact } from '../lib/remediationArtifact'
@@ -210,6 +211,26 @@ void describe('security remediation workflow', () => {
     assert.equal(publish.permissions?.contents, 'write')
     assert.equal(publish.permissions?.['pull-requests'], 'write')
     assert.equal(publish.permissions?.issues, 'write')
+  })
+
+  void it('holds every CI job back from a published branch until a human approves it', () => {
+    const ci = yaml.load(readFileSync(path.resolve(__dirname, '../../workflows/ci.yml'), 'utf8')) as {
+      on: { push: { 'branches-ignore': string[] }, pull_request: { types: string[] } }
+      jobs: Record<string, { if?: string }>
+    }
+    const branchPrefix = 'security/alert-'
+    assert.ok(remediationBranchName(16, { runId: '1', runAttempt: '1' }).startsWith(branchPrefix))
+
+    assert.ok(ci.on.push['branches-ignore'].includes(`${branchPrefix}*`))
+    assert.ok(ci.on.pull_request.types.includes('labeled'))
+
+    const gate = ci.jobs.lint.if ?? ''
+    assert.ok(gate.includes(`startsWith(github.head_ref, '${branchPrefix}')`))
+    assert.ok(gate.includes("github.event.label.name == 'sec:ci-approved'"))
+    for (const [name, job] of Object.entries(ci.jobs)) {
+      const pushOnly = /&& github\.event_name == 'push'( &&|$)/.test(job.if ?? '')
+      assert.ok(job.if === gate || pushOnly, `CI job ${name} would run a published branch without approval`)
+    }
   })
 
   void it('lints the remediation taskflow alongside the triage one', () => {
