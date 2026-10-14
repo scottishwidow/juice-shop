@@ -8,7 +8,6 @@ import assert from 'node:assert/strict'
 
 import {
   fetchAllIssueComments,
-  fetchIssueCommentsAuthenticated,
   fetchIssueCommentsUnauthenticated,
   type FetchImpl
 } from '../lib/issueComments'
@@ -123,15 +122,5 @@ void describe('fetchIssueCommentsUnauthenticated', () => {
     await fetchIssueCommentsUnauthenticated('owner/repo', '9', impl)
 
     assert.equal(calls[0].headers.authorization, undefined)
-  })
-})
-
-void describe('fetchIssueCommentsAuthenticated', () => {
-  void it('sends the given token as a bearer authorization header', async () => {
-    const { impl, calls } = pagedFetch([[]])
-
-    await fetchIssueCommentsAuthenticated('owner/repo', '9', 'gh-token-value', impl)
-
-    assert.equal(calls[0].headers.authorization, 'Bearer gh-token-value')
   })
 })

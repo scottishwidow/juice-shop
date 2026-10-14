@@ -4,6 +4,7 @@ import process from 'node:process'
 
 import { computeCouplingEvidence } from '../lib/couplingEvidence'
 import { parseAlertUrl, describeAlertUrlFailure } from '../lib/parseAlertUrl'
+import { requireEnv } from '../lib/taskflowRun'
 import {
   TRIAGE_ALERT_DIR,
   writeTriageAlert,
@@ -16,14 +17,6 @@ export interface AlertDetail {
   ruleId: string
   path: string
   message: string
-}
-
-function requireEnv (name: string): string {
-  const value = process.env[name]
-  if (value === undefined || value === '') {
-    throw new Error(`Missing required environment variable ${name}`)
-  }
-  return value
 }
 
 function fetchAlertDetail (repo: string, alertNumber: number): AlertDetail {

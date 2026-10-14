@@ -23,16 +23,7 @@ import {
   REMEDIATION_COMMIT_IDENTITY,
   type AttemptIdentity
 } from '../lib/remediationPr'
-
-export const MODEL = 'claude-sonnet-5'
-
-function requireEnv (name: string): string {
-  const value = process.env[name]
-  if (value === undefined || value === '') {
-    throw new Error(`Missing required environment variable ${name}`)
-  }
-  return value
-}
+import { readTaskflowModel, requireEnv, workflowRunLink } from '../lib/taskflowRun'
 
 function gh (args: string[]): string {
   return execFileSync('gh', args, { encoding: 'utf8' })
@@ -40,12 +31,6 @@ function gh (args: string[]): string {
 
 function git (args: string[], options: { input?: string, env?: NodeJS.ProcessEnv } = {}): string {
   return execFileSync('git', args, { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024, ...options })
-}
-
-function workflowRunLink (repo: string): string {
-  const serverUrl = process.env.GITHUB_SERVER_URL ?? 'https://github.com'
-  const runId = process.env.GITHUB_RUN_ID
-  return runId === undefined ? '' : `${serverUrl}/${repo}/actions/runs/${runId}`
 }
 
 export interface PublishInput {
@@ -165,7 +150,7 @@ function publishProposal (
       issueNumber,
       changedPaths,
       runLink,
-      model: MODEL
+      model: readTaskflowModel()
     }))
     const prUrl = dependencies.createPullRequest({
       branch,

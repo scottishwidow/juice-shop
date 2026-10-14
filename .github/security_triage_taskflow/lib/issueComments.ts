@@ -3,13 +3,9 @@
  * SPDX-License-Identifier: MIT
  */
 
-// Single reader of an issue's comments for both the credential-free `remediate` job and the
-// `gate` job (issue #16). GitHub returns 30 comments per page by default; on a discussion
-// longer than that, reading only page one hides the trusted verdict and the workflow reports a
-// refusal that names the wrong cause ("no verdict comment") instead of the real one
-// ("didn't look far enough"). Both callers page to the end via the response's `Link` header,
-// and differ only in which headers they send: `remediate` sends none (it holds no credential),
-// `gate` sends its own token instead of spending the shared unauthenticated rate limit.
+// GitHub returns 30 comments per page by default. On a longer discussion, reading only page one
+// hides the trusted verdict, and the workflow reports "no verdict comment" instead of the real
+// cause. The reader therefore pages to the end via the response's `Link` header.
 
 import type { IssueComment } from './trustedVerdict'
 
@@ -63,18 +59,9 @@ export async function fetchAllIssueComments (
   return comments
 }
 
-/** The credential-free read `remediate` and `triage` use: no token, public data only. */
+/** The credential-free read `remediate` uses: no token, public data only. */
 export async function fetchIssueCommentsUnauthenticated (
   repo: string, issueNumber: string, fetchImpl?: FetchImpl
 ): Promise<IssueComment[]> {
   return await fetchAllIssueComments(repo, issueNumber, { accept: 'application/vnd.github+json' }, fetchImpl)
-}
-
-/** The `gate` job's own read, spending its own token rather than the shared anonymous quota. */
-export async function fetchIssueCommentsAuthenticated (
-  repo: string, issueNumber: string, token: string, fetchImpl?: FetchImpl
-): Promise<IssueComment[]> {
-  return await fetchAllIssueComments(
-    repo, issueNumber, { accept: 'application/vnd.github+json', authorization: `Bearer ${token}` }, fetchImpl
-  )
 }
