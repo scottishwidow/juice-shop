@@ -11,24 +11,11 @@ import {
   type TriageAlertArtifact,
   type TriageVerdictArtifact
 } from '../lib/triageArtifact'
+import { requireEnv, workflowRunLink } from '../lib/taskflowRun'
 import { encodeVerdictPayload, type VerdictPayload } from '../lib/verdictPayload'
-
-function requireEnv (name: string): string {
-  const value = process.env[name]
-  if (value === undefined || value === '') {
-    throw new Error(`Missing required environment variable ${name}`)
-  }
-  return value
-}
 
 function gh (args: string[]): string {
   return execFileSync('gh', args, { encoding: 'utf8' })
-}
-
-function workflowRunLink (repo: string): string {
-  const serverUrl = process.env.GITHUB_SERVER_URL ?? 'https://github.com'
-  const runId = process.env.GITHUB_RUN_ID
-  return runId === undefined ? '' : `${serverUrl}/${repo}/actions/runs/${runId}`
 }
 
 function verdictSummary (alert: TriageAlert, verdict: TaskflowVerdict): string {

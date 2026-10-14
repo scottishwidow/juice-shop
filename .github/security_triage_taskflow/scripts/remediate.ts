@@ -1,14 +1,13 @@
 import { spawnSync } from 'node:child_process'
-import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs'
+import { mkdtempSync, readdirSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 
 import { git, prepareAgentWorkspace, type RunGit } from '../lib/agentWorkspace'
-import { createTaskflowDataDir } from '../lib/taskflowDataDir'
-import { taskflowPythonPath } from '../lib/taskflowPackage'
 import { fetchIssueCommentsUnauthenticated } from '../lib/issueComments'
 import { parseAlertUrl, describeAlertUrlFailure } from '../lib/parseAlertUrl'
+import { requireEnv, runTaskflowProcess } from '../lib/taskflowRun'
 import {
   REMEDIATION_OUTPUT_DIR,
   writeRemediationFailure,
@@ -26,14 +25,6 @@ import { describeVerdictRefusal, selectTrustedVerdict, type IssueComment } from 
 import type { VerdictPayload } from '../lib/verdictPayload'
 
 const SOURCE_INDEX_ARTIFACTS = ['tags', 'GPATH', 'GRTAGS', 'GTAGS', 'cscope.out', 'cscope.in.out', 'cscope.po.out']
-
-function requireEnv (name: string): string {
-  const value = process.env[name]
-  if (value === undefined || value === '') {
-    throw new Error(`Missing required environment variable ${name}`)
-  }
-  return value
-}
 
 function baseCommit (): string {
   return git(['rev-parse', 'HEAD']).trim()
@@ -54,79 +45,28 @@ export function runTaskflow (
   workspace: string,
   spawnTaskflow: typeof spawnSync = spawnSync
 ): TaskflowRunOutcome {
-  const dataDir = createTaskflowDataDir('security-remediation-taskflow-')
-
-  const result = spawnTaskflow('python3', [
-    '-m', 'seclab_taskflow_agent',
-    '-t', 'security_triage_taskflow.taskflows.remediate',
-    '-m', 'security_triage_taskflow.configs.model_config',
-    '-g', `alert_number=${context.alert.number}`,
-    '-g', `alert_url=${context.alert.url}`,
-    '-g', `rule_id=${context.alert.ruleId}`,
-    '-g', `path=${context.alert.path}`,
-    '-g', `verdict=${context.verdict}`,
-    '-g', `assessment=${context.assessment}`
-  ], {
-    encoding: 'utf8',
-    env: {
-      ...process.env,
-      ANTHROPIC_API_KEY: requireEnv('ANTHROPIC_API_KEY'),
-      CONTAINER_WORKSPACE: workspace,
-      LOG_DIR: path.join(dataDir, 'logs'),
-      XDG_DATA_HOME: dataDir,
-      PYTHONPATH: taskflowPythonPath()
-    }
-  })
-
-  if (result.error !== undefined) {
-    console.error(result.error)
-  }
-  if (result.stdout !== undefined && result.stdout !== '') {
-    console.log(result.stdout)
-  }
-  if (result.stderr !== undefined && result.stderr !== '') {
-    console.error(result.stderr)
+  const run = runTaskflowProcess({
+    taskflow: 'remediate',
+    globals: {
+      alert_number: context.alert.number,
+      alert_url: context.alert.url,
+      rule_id: context.alert.ruleId,
+      path: context.alert.path,
+      verdict: context.verdict,
+      assessment: context.assessment
+    },
+    workspace,
+    dataDirPrefix: 'security-remediation-taskflow-'
+  }, spawnTaskflow)
+  if (!run.ok) {
+    return run
   }
 
-  if (result.error !== undefined) {
-    return { ok: false, reason: `The TaskFlow process failed to start: ${result.error.message}.` }
-  }
-  if (result.signal !== null) {
-    return { ok: false, reason: `The TaskFlow process was terminated by signal ${result.signal}.` }
-  }
-  if (result.status !== 0) {
-    return { ok: false, reason: `The TaskFlow process exited with status ${result.status ?? 'unknown'}.` }
-  }
-
-  const manifest = readManifest(path.join(dataDir, 'seclab-taskflow-agent', 'artifacts'))
-  const outcome = parseRemediationProposal(manifest?.outputs?.fix)
+  const outcome = parseRemediationProposal(run.outputs.fix)
   if (!outcome.ok) {
     return { ok: false, reason: describeRemediationProposalFailure(outcome.reason) }
   }
   return { ok: true, proposal: outcome.proposal }
-}
-
-interface RunManifest {
-  outputs?: Record<string, unknown>
-}
-
-function readManifest (artifactsRoot: string): RunManifest | undefined {
-  if (!existsSync(artifactsRoot)) {
-    return undefined
-  }
-  const sessionId = readdirSync(artifactsRoot)[0]
-  if (sessionId === undefined) {
-    return undefined
-  }
-  const manifestPath = path.join(artifactsRoot, sessionId, 'manifest.json')
-  if (!existsSync(manifestPath)) {
-    return undefined
-  }
-  try {
-    return JSON.parse(readFileSync(manifestPath, 'utf8')) as RunManifest
-  } catch {
-    return undefined
-  }
 }
 
 export type ProposedDiffOutcome =
