@@ -9,6 +9,9 @@ status: accepted
 > deleted, and no longer describe the code. The pins, the package layout and the
 > `capture: response`/`manifest.json` reasoning are unchanged and still current.
 
+> Amended: `triage` is split into `read-alert`, `triage` and `post-verdict`, so the job that
+> runs the agent holds no credential. See the credential section below.
+
 > Amended: the package moved from the repository root to `.github/security_triage_taskflow/`,
 > and the TypeScript wrapper scripts, modules and tests moved into it. The package layout
 > section below describes the new location. The record names current TypeScript files by
@@ -158,14 +161,19 @@ plus a copy of the installed `node_modules` so the agent can read library source
 write to this copy, but nothing reads it after the run. The job's own `.git` directory and
 scripts are not mounted, so an agent edit cannot reach a later `git` or `gh` call of the job.
 
-The credential the job holds is a separate concern. Unlike `remediate`, `triage`
-both drives a tool-using agent and posts the verdict, so its `GH_TOKEN` (`issues: write`,
-`security-events: read`) is in the job's environment while the agent runs. `agentEnvironment`
-in `triage.ts` therefore removes `GH_TOKEN` and `GITHUB_TOKEN`
-from the environment handed to the TaskFlow process, so the token stays with the `gh` calls
-the wrapper script makes itself and never reaches the agent's process tree. That is weaker
-than the job boundary ADR-0010 gives remediation, and splitting `triage` into an uncredentialed
-agent job and a credentialed publishing job is the way to close the gap; it is not done here.
+The credential is a separate concern. *Amended:* `triage` is now split the way ADR-0010 splits
+remediation. `read-alert` (`contents: read`, `security-events: read`) reads the alert, the base
+commit and the coupling evidence, and runs no model. `triage` (`permissions: {}`) checks out
+that base commit and runs the agent with only `ANTHROPIC_API_KEY`. `post-verdict`
+(`contents: read`, `issues: write`) posts the comment and changes the labels, and runs no
+model. The jobs hand over their results as workflow artifacts (`triageArtifact.ts`).
+`post-verdict` validates the agent job's verdict again and takes every field it does not
+derive from the model from the `read-alert` artifact.
+
+Before the split, one job drove the agent and held `GH_TOKEN` (`issues: write`,
+`security-events: read`), and `agentEnvironment` in `triage.ts` only removed the token from
+the environment of the TaskFlow process. That function is gone: the agent job has no token to
+remove.
 
 ## Live-run verification is deferred
 

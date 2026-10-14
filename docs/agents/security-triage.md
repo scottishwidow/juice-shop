@@ -24,8 +24,8 @@ A human pastes one same-repository code-scanning alert URL into an issue and app
 
 | Label | Applied by | Effect |
 | --- | --- | --- |
-| `sec:needs-triage` | human | starts the `triage` job |
-| `sec:triaged` | `triage` job | verdict comment posted; `sec:needs-triage` removed |
+| `sec:needs-triage` | human | starts `read-alert`, `triage` and `post-verdict` |
+| `sec:triaged` | `post-verdict` job | verdict comment posted; `sec:needs-triage` removed |
 | `sec:ready-for-remediation` | human | starts `remediate` and `publish` |
 
 The verdict (`confirmed`, `not-applicable`, `inconclusive`) is written in the comment body, not
@@ -40,7 +40,7 @@ deduplicated or tracked, and a failed attempt sets no label that blocks the next
 1. Open the repository's code-scanning alerts and copy the URL of one alert
    (`https://github.com/<owner>/<repo>/security/code-scanning/<n>`).
 2. Create an issue that contains that URL. No other detail is read from the body.
-3. Apply `sec:needs-triage`. The `triage` job starts.
+3. Apply `sec:needs-triage`. The `read-alert`, `triage` and `post-verdict` jobs start.
 4. Read the verdict comment. Triage stops there, whatever the verdict is.
 5. Apply `sec:ready-for-remediation` to authorize a fix attempt. The `remediate` and
    `publish` jobs start.
@@ -58,39 +58,37 @@ every resource they reference.
 The jobs run code from `.github/security_triage_taskflow/`. Paths in the sections below
 that start with `scripts/`, `lib/` or `taskflows/` are relative to that directory.
 
-`triage`/`remediate`/`publish` are triggered by `on: issues: types: [labeled]`.
+`read-alert`/`triage`/`post-verdict`/`remediate`/`publish` are triggered by
+`on: issues: types: [labeled]`.
 `lint-taskflow` also runs on `push`/`pull_request` for paths touching the taskflow
 configuration, independent of any label and with no secrets.
 
 | Job | Permissions | Does |
 | --- | --- | --- |
 | `lint-taskflow` | `contents: read` | offline TaskFlow grammar/resource lint of both taskflows, no model call |
-| `triage` | `issues: write`, `security-events: read` | reads the alert, runs the TaskFlow agent, posts the assessment |
+| `read-alert` | `contents: read`, `security-events: read` | reads the alert and the base commit, writes them to an artifact, no model call |
+| `triage` | `{}` | runs the TaskFlow agent over that base commit, writes its verdict to an artifact |
+| `post-verdict` | `contents: read`, `issues: write` | posts the assessment or reports the failure, no model call |
 | `remediate` | `{}` | runs the TaskFlow agent over a checkout, writes its diff to an artifact |
 | `publish` | `contents: write`, `pull-requests: write`, `issues: write` | enforces exclusions, opens the pull request or reports the failure |
 
-`security-events: read` is the scope the code-scanning API requires; only `triage` calls it.
+`security-events: read` is the scope the code-scanning API requires; only `read-alert` calls it.
 `remediate` and `publish` key the finding by the alert number in the issue body and take the
-rule and path from the assessment `triage` published, so neither makes a scanner call.
+rule and path from the assessment `post-verdict` published, so neither makes a scanner call.
 
-`remediate` runs a model and holds no credential: `permissions: {}`, and a checkout with
-`persist-credentials: false`. `publish` holds the write credentials and runs no model. Those
-two are separated by a job boundary.
-
-`triage` is the one job on both sides of that line: it runs a tool-using agent and posts the
-verdict with its own `GH_TOKEN`. Its write permission is comment and label changes only, and
-`agentEnvironment` (`scripts/triage.ts`) removes `GH_TOKEN`/`GITHUB_TOKEN`
-from the environment the TaskFlow process is given, so the token stays with the `gh` calls the
-wrapper script makes itself. That is weaker than a job boundary; splitting `triage` the way
-`remediate`/`publish` are split is the way to close it
-([ADR-0009](../adr/0009-taskflow-triage-implementation.md)).
+`triage` and `remediate` run a model and hold no credential: `permissions: {}`, and a checkout
+with `persist-credentials: false`. `read-alert`, `post-verdict` and `publish` hold the
+credentials and run no model. Each model-driven job is separated from the credentialed jobs by
+a job boundary, and hands its result over only as a workflow artifact.
 
 ## Triage job
 
-Implemented in `.github/workflows/security-triage.yml`, running
-`scripts/triage.ts` and the SecLab TaskFlow Agent runner
+Implemented in `.github/workflows/security-triage.yml` as three jobs. `read-alert` runs
+`scripts/readAlert.ts`, `triage` runs `scripts/triage.ts` and the SecLab TaskFlow Agent runner
 (`.github/security_triage_taskflow/`), per [ADR-0007](../adr/0007-taskflow-security-workflows.md) and
-[ADR-0009](../adr/0009-taskflow-triage-implementation.md).
+[ADR-0009](../adr/0009-taskflow-triage-implementation.md), and `post-verdict` runs
+`scripts/postVerdict.ts`. They hand over their results as workflow artifacts
+(`lib/triageArtifact.ts`).
 
 The human-pasted issue body must contain exactly one same-repository code-scanning alert URL
 (`https://github.com/<owner>/<repo>/security/code-scanning/<n>`); `lib/parseAlertUrl.ts` reads
@@ -121,9 +119,13 @@ approach and [ADR-0004](../adr/0004-triage-model-call-has-no-tools.md) for the s
 tool-free model call). The agent's structured output (`lib/taskflowVerdict.ts`) is read back
 from the TaskFlow run's own `manifest.json` artifact after the process exits - a plain file
 read, never a shell step templated with agent-produced text (see the taskflow file for why).
-The workflow script, not the model, posts the comment and swaps `sec:needs-triage` for
-`sec:triaged`, using the job's own `issues: write` permission; a parsing or execution failure
-produces a distinct visible comment instead and leaves the label unchanged.
+`triage` checks out the commit `read-alert` recorded, so the agent investigates the same base
+the alert, the coupling evidence and the payload name. It writes the verdict, or the reason it
+stopped, to its artifact. `post-verdict` runs on `always()`. It validates the verdict artifact
+again, takes the alert number, base commit, rule, path and coupling evidence from the
+`read-alert` artifact and never from the agent job, then posts the comment and swaps
+`sec:needs-triage` for `sec:triaged`. A failure in any of the three jobs produces a distinct
+visible comment instead and leaves the label unchanged.
 
 The agent does not get the job's checkout. It gets an isolated copy of the tracked files and
 of the installed `node_modules`, with its own throwaway git repository
